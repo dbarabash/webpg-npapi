@@ -305,6 +305,19 @@ public:
         const FB::VariantList& enc_to_keyids, const boost::optional<bool>& sign, const boost::optional<FB::VariantList>& opt_signers);
 
     ///////////////////////////////////////////////////////////////////////////////
+    /// @fn FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& filename, const FB::VariantList& enc_to_keyids, bool sign)
+    ///
+    /// @brief  Encrypts the data passed in data with the key ids passed in
+    ///         enc_to_keyids and optionally signs the data.
+    ///
+    /// @param  data    The data to encrypt.
+    /// @param  enc_to_keyids   A VariantList of key ids to encrypt to (recpients).
+    /// @param  sign    The data should be also be signed.
+    ///////////////////////////////////////////////////////////////////////////////
+    FB::variant gpgEncryptFile(const std::string& filename,
+        const FB::VariantList& enc_to_keyids, const boost::optional<bool>& sign, const boost::optional<FB::VariantList>& opt_signers);
+
+    ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::gpgSymmetricEncrypt(const std::string& data, bool sign)
     ///
     /// @brief  Calls webpgPluginAPI::gpgEncrypt() without any recipients specified
@@ -342,6 +355,31 @@ public:
     /// @param  data    The data to decyrpt.
     ///////////////////////////////////////////////////////////////////////////////
     FB::variant gpgDecrypt(const std::string& data);
+
+    ///////////////////////////////////////////////////////////////////////////////
+    /// @fn FB::variant webpgPluginAPI::gpgDecryptVerify(const std::string& data, const std::string& plaintext, int use_agent)
+    ///
+    /// @brief  Attempts to decrypt and verify the string data. If use_agent
+    ///         is 0, it will attempt to disable the key-agent to prevent the
+    ///         passphrase dialog from displaying. This is useful in cases where
+    ///         you want to verify or decrypt without unlocking the private keyring
+    ///         (i.e. in an automated parsing environment).
+    ///
+    /// @param  data    The data to decrypt and/or verify.
+    /// @param  plaintext   The plaintext of a detached signature.
+    /// @param  use_agent   Attempt to disable the gpg-agent.
+    ///////////////////////////////////////////////////////////////////////////////
+    FB::variant gpgDecryptFileVerify(const std::string& file, const std::string& plaintext, int use_agent);
+
+    ///////////////////////////////////////////////////////////////////////////////
+    /// @fn FB::variant webpgPluginAPI::gpgDecrypt(const std::string& data)
+    ///
+    /// @brief  Calls webpgPluginAPI::gpgDecryptVerify() with the use_agent flag
+    ///         specifying to not disable the gpg-agent.
+    ///
+    /// @param  data    The data to decyrpt.
+    ///////////////////////////////////////////////////////////////////////////////
+    FB::variant gpgDecryptFile(const std::string& file);
 
     FB::variant gpgVerify(const std::string& data, const boost::optional<std::string>& plaintext);
 
@@ -844,7 +882,7 @@ public:
 private:
     webpgPluginWeakPtr m_plugin;
     FB::BrowserHostPtr m_host;
-
+    
 };
 
 #endif // H_webpgPluginAPI

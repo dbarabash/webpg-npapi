@@ -131,8 +131,10 @@ webpgPluginAPI::webpgPluginAPI(const webpgPluginPtr& plugin, const FB::BrowserHo
         registerMethod("gpgSetGPGConf", make_method(this, &webpgPluginAPI::gpgSetGPGConf));
         registerMethod("gpgGetGPGConf", make_method(this, &webpgPluginAPI::gpgGetGPGConf));
         registerMethod("gpgEncrypt", make_method(this, &webpgPluginAPI::gpgEncrypt));
+        registerMethod("gpgEncryptFile", make_method(this, &webpgPluginAPI::gpgEncryptFile));
         registerMethod("gpgSymmetricEncrypt", make_method(this, &webpgPluginAPI::gpgSymmetricEncrypt));
         registerMethod("gpgDecrypt", make_method(this, &webpgPluginAPI::gpgDecrypt));
+        registerMethod("gpgDecryptFile", make_method(this, &webpgPluginAPI::gpgDecryptFile));
         registerMethod("gpgVerify", make_method(this, &webpgPluginAPI::gpgVerify));
         registerMethod("gpgSignText", make_method(this, &webpgPluginAPI::gpgSignText));
         registerMethod("gpgSignUID", make_method(this, &webpgPluginAPI::gpgSignUID));
@@ -1655,6 +1657,44 @@ FB::variant webpgPluginAPI::gpgEncrypt(const std::string& data,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/*
+    This method passes a string to encrypt, a list of keys to encrypt to calls
+        webpgPlugin.gpgEncrypt. This method returns a string of encrypted data.
+*/
+/* This method accepts 3 parameters, data, enc_to_keyid 
+    and sign [optional; default: 0:NULL:false]
+    the return value is a string buffer of the result */
+FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file, 
+        const FB::VariantList& enc_to_keyids, const boost::optional<bool>& sign, const boost::optional<FB::VariantList>& opt_signers)
+{
+    FILE *in_stream = fopen(file.c_str(), "rb");
+//    std::string in_data = LoadFileAsString(file);
+    gpgme_data_t in_data;
+    gpgme_data_new_from_stream(in_data, infile);
+
+    gpgme_ctx_t ctx = get_gpgme_ctx();
+    int armor = gpgme_get_armor (ctx);
+    gpgme_set_armor (ctx, 0);
+
+    FB::VariantMap response = gpgEncrypt(in_data, enc_to_keyids, sign, opt_signers).cast<FB::VariantMap>();
+    if (response["error"].cast<bool>()) return response;
+
+    std::string filename = file + ".gpg";
+    FILE *outfile = fopen(filename.c_str(), "bw");
+    fwrite(response["data"].cast<std::string>().c_str(), sizeof(char), response["data"].cast<std::string>().length(), outfile);
+//    fwrite(response["data"].cast<std::string>().c_str(), sizeof(char), response["data"].cast<std::string>().length(), outfile);
+
+    fclose(outfile);
+//    delete &in_data;
+//    free(response["data"].cast<std::string>().c_str());
+
+    gpgme_set_armor (ctx, armor);
+
+    response["data"] = filename;
+    return response;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 /// @fn FB::variant webpgPluginAPI::gpgSymmetricEncrypt(const std::string& data, bool sign)
 ///
 /// @brief  Calls webpgPluginAPI::gpgEncrypt() without any recipients specified
@@ -1926,6 +1966,33 @@ FB::variant webpgPluginAPI::gpgDecryptVerify(const std::string& data, const std:
 FB::variant webpgPluginAPI::gpgDecrypt(const std::string& data)
 {
     return webpgPluginAPI::gpgDecryptVerify(data, "", 1);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+/// @fn FB::variant webpgPluginAPI::gpgDecrypt(const std::string& data)
+///
+/// @brief  Calls webpgPluginAPI::gpgDecryptVerify() with the use_agent flag
+///         specifying to not disable the gpg-agent.
+///
+/// @param  data    The data to decyrpt.
+///////////////////////////////////////////////////////////////////////////////
+FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
+{
+    std::string in_data = LoadFileAsString(file);
+
+    FB::VariantMap response = gpgDecryptVerify(in_data, "", 1).cast<FB::VariantMap>();
+    if (response["error"].cast<bool>()) return response;
+
+    std::string filename = file.substr(0, file.find_last_of("."));
+    FILE *outfile = fopen(filename.c_str(), "wb");
+    fwrite(response["data"].cast<std::string>().c_str(), sizeof(char), response["data"].cast<std::string>().length(), outfile);
+
+    fclose(outfile);
+//    delete &in_data;
+//    free(response["data"].cast<std::string>().c_str());
+
+    response["data"] = filename;
+    return response;
 }
 
 FB::variant webpgPluginAPI::gpgVerify(const std::string& data, const boost::optional<std::string>& plaintext)
@@ -3253,7 +3320,7 @@ FB::variant webpgPluginAPI::gpgSetSubkeyExpire(const std::string& keyid, long ke
 ///
 /// @brief  Exports the public key specified with keyid as an armored ASCII encoded PGP Block.
 ///
-/// @param  keyid   The ID of the Public key to export.
+/// @param  keyid   the id of the public key to export.
 ///
 /// @returns FB::variant response
 /*! @verbatim
