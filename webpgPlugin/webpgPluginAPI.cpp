@@ -1740,18 +1740,18 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 //    if (err != GPG_ERR_NO_ERROR)
 //        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
-//    err = gpgme_data_set_encoding(in, GPGME_DATA_ENCODING_ARMOR);
-//    if(err != GPG_ERR_NO_ERROR)
-//        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    err = gpgme_data_set_encoding(in, GPGME_DATA_ENCODING_BINARY);
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
-//    err = gpgme_data_new (&out);
+
     err = gpgme_data_new(&out);
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
-//    err = gpgme_data_set_encoding(out, GPGME_DATA_ENCODING_ARMOR);
-//    if(err != GPG_ERR_NO_ERROR)
-//        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    err = gpgme_data_set_encoding(out, GPGME_DATA_ENCODING_BINARY);
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
     for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++) {
 
@@ -1846,10 +1846,25 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
     }
 
     size_t out_size = 0;
-    std::string out_buf;
-    out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+//    std::string out_buf;
+//    out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+    std::string encoded_str = "";
+    char *out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+    if (out_buf != NULL)
+    {
+        encoded_str.resize(out_size);
+        for (size_t i=0; i<out_size; ++i)
+        {
+            encoded_str[i] = out_buf[i];
+        }
+        gpgme_free(out_buf);
+    } else {
+        // handle error
+        return get_error_map(__func__, -1, "Handle of output buffer is NULL", __LINE__, __FILE__);
+    }
+
     /* strip the size_t data out of the output buffer */
-    out_buf = out_buf.substr(0, out_size);
+//    out_buf = out_buf.substr(0, out_size);
     /* set the output object to NULL since it has
         already been released */
     out = NULL;
@@ -1866,7 +1881,6 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
     if (out)
         gpgme_data_release (out);
 
-    response["data"] = out_buf;
     response["error"] = false;
 
 
@@ -1878,7 +1892,7 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 //    std::string filename = file + ".gpg";
     FILE *outfile = fopen(out_filename.c_str(), "w");
 //    fwrite(out, sizeof(char), size, outfile);
-    fwrite(response["data"].cast<std::string>().c_str(), sizeof(char), response["data"].cast<std::string>().length(), outfile);
+    fwrite(encoded_str.c_str(), sizeof(char), encoded_str.length(), outfile);
 
     fclose(outfile);
 //    fclose(in_stream);
@@ -1887,7 +1901,7 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 
     gpgme_set_armor (ctx, armor);
 
-    response["filename"] = out_filename;
+    response["data"] = out_filename;
     return response;
 }
 
@@ -2178,7 +2192,7 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     gpgme_error_t err;
     gpgme_data_t in, out, plain;
     std::string plaintext = "";
-    int use_agent = 0;
+    int use_agent = 1;
 //    std::string in_data = LoadFileAsString(file);
     err = gpgme_data_new_from_file(&in, file.c_str(), 1);
     if (err != GPG_ERR_NO_ERROR) return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
@@ -2189,6 +2203,7 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     gpgme_signature_t sig;
     gpgme_sig_notation_t notation;
     std::string out_buf;
+    std::string encoded_str = "";
     std::string envvar;
     FB::VariantMap response;
     int nsigs;
@@ -2222,9 +2237,6 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     } else {
         ctx = get_gpgme_ctx();
     }
-
-    int armor = gpgme_get_armor (ctx);
-    gpgme_set_armor (ctx, 0);
 
 //    err = gpgme_data_new_from_mem (&in, data.c_str(), data.length(), 0);
 //    if (err != GPG_ERR_NO_ERROR) {
@@ -2369,11 +2381,25 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
         } else {
             size_t out_size = 0;
             gpgme_data_seek(out, 0, SEEK_SET);
-            out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+//            out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+            char *local_out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+            if (local_out_buf != NULL)
+            {
+                encoded_str.resize(out_size);
+                for (size_t i=0; i<out_size; ++i)
+                {
+                    encoded_str[i] = local_out_buf[i];
+                }
+                gpgme_free(local_out_buf);
+            } else {
+                // handle error
+                return get_error_map(__func__, -1, "Handle of output buffer is NULL", __LINE__, __FILE__);
+            }
+
 
             /* strip the size_t data out of the output buffer */
-            out_buf = out_buf.substr(0, out_size);
-            response["data"] = out_buf;
+//            out_buf = out_buf.substr(0, out_size);
+//            response["data"] = out_buf;
         }
 
     }
@@ -2388,13 +2414,11 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
 
     std::string filename = file.substr(0, file.find_last_of("."));
     FILE *outfile = fopen(filename.c_str(), "w");
-    fwrite(response["data"].cast<std::string>().c_str(), sizeof(char), response["data"].cast<std::string>().length(), outfile);
+    fwrite(encoded_str.c_str(), sizeof(char), encoded_str.length(), outfile);
 
     fclose(outfile);
 //    delete &in_data;
 //    free(response["data"].cast<std::string>().c_str());
-
-    gpgme_set_armor (ctx, armor);
 
     response["data"] = filename;
     return response;
