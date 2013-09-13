@@ -1658,37 +1658,20 @@ FB::variant webpgPluginAPI::gpgEncrypt(const std::string& data,
 
 ///////////////////////////////////////////////////////////////////////////////
 /*
-    This method passes a string to encrypt, a list of keys to encrypt to calls
-        webpgPlugin.gpgEncrypt. This method returns a string of encrypted data.
+    This method passes a file path to encrypt, a list of keys to encrypt to calls
+        webpgPlugin.gpgEncryptFile. This method returns a string of encrypted data.
 */
-/* This method accepts 3 parameters, data, enc_to_keyid 
-    and sign [optional; default: 0:NULL:false]
-    the return value is a string buffer of the result */
+/* This method accepts 4 parameters, data, enc_to_keyid, 
+    sign [optional; default: 0:NULL:false] and opt_signers
+    the return value is a file path of the result */
 FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file, 
         const FB::VariantList& enc_to_keyids, const boost::optional<bool>& sign, const boost::optional<FB::VariantList>& opt_signers)
 {
-    gpgme_error_t err;
-//    FB::VariantMap response;
-    size_t size;
-//    FILE *in_stream = fopen(file.c_str(), "r");
-//    std::string in_data = LoadFileAsString(file);
-    gpgme_data_t in_data;
-    std::string out_filename = file + ".gpg";
-//    err = gpgme_data_new_from_stream(&in_data, in_stream);
-    err = gpgme_data_new_from_file(&in_data, file.c_str(), 1);
-    if (err != GPG_ERR_NO_ERROR) return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
-
-    gpgme_ctx_t ctx = get_gpgme_ctx();
-    int armor = gpgme_get_armor (ctx);
-    gpgme_set_armor (ctx, 0);
-
     /* declare variables */
     FB::VariantList signers;
-    if (opt_signers)
-        signers = *opt_signers;
-//    gpgme_ctx_t ctx = get_gpgme_ctx();
-//    gpgme_error_t err;
-    gpgme_data_t in, out;
+    gpgme_error_t err;
+    size_t size;
+    gpgme_data_t in = NULL, out = NULL;
 #ifdef HAVE_W32_SYSTEM
     // FIXME: W32 doesn't like the array sized by the contents of the
     // enc_to_keyids - for now set to 100
@@ -1702,8 +1685,21 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
     gpgme_encrypt_result_t enc_result;
     FB::VariantMap response;
     bool unusable_key = false;
+    FILE *outfile;
+    std::string out_filename = file + ".gpg";
 
-    in = in_data;
+    gpgme_ctx_t ctx = get_gpgme_ctx();
+    int armor = gpgme_get_armor (ctx);
+    gpgme_set_armor (ctx, 0);
+
+    try
+    {
+
+    err = gpgme_data_new_from_file(&in, file.c_str(), 1);
+    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+
+    if (opt_signers)
+        signers = *opt_signers;
 
     if (sign && sign == true && signers.size() > 0) {
         int nsigners;
@@ -1713,55 +1709,41 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
         for (nsigners=0; nsigners < signers.size(); nsigners++) {
             signer = signers[nsigners];
             err = gpgme_op_keylist_start (ctx, signer.convert_cast<std::string>().c_str(), 0);
-            if (err != GPG_ERR_NO_ERROR)
-                return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
             err = gpgme_op_keylist_next (ctx, &signing_key);
-            if (err != GPG_ERR_NO_ERROR)
-                return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
             err = gpgme_op_keylist_end (ctx);
-            if (err != GPG_ERR_NO_ERROR)
-                return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
             err = gpgme_signers_add (ctx, signing_key);
-            if (err != GPG_ERR_NO_ERROR)
-                return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
             gpgme_key_unref (signing_key);
 
         }
 
         if (!nsigners > 0)
-            return get_error_map(__func__, -1, "No signing keys found", __LINE__, __FILE__);
+            throw "No signing keys found\0";
     }
 
-//    err = gpgme_data_new_from_mem (&in, data.c_str(), data.length(), 0);
-//    if (err != GPG_ERR_NO_ERROR)
-//        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
-
     err = gpgme_data_set_encoding(in, GPGME_DATA_ENCODING_BINARY);
-    if(err != GPG_ERR_NO_ERROR)
-        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
 
     err = gpgme_data_new(&out);
-    if (err != GPG_ERR_NO_ERROR)
-        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
     err = gpgme_data_set_encoding(out, GPGME_DATA_ENCODING_BINARY);
-    if(err != GPG_ERR_NO_ERROR)
-        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
     for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++) {
 
         recipient = enc_to_keyids[nrecipients];
 
         err = gpgme_get_key (ctx, recipient.convert_cast<std::string>().c_str(), &key[nrecipients], 0);
-        if(err != GPG_ERR_NO_ERROR)
-            return get_error_map(__func__, gpgme_err_code (err),
-                gpgme_strerror (err), __LINE__, __FILE__,
-                recipient.convert_cast<std::string>().c_str());
+        if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
         // Check if key is unusable/invalid
         unusable_key = key[nrecipients]->invalid? true :
@@ -1783,7 +1765,7 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
             key[nrecipients]->revoked? 94 :
             key[nrecipients]->disabled? 53 : GPG_ERR_UNKNOWN_ERRNO;
 
-            return get_error_map(__func__, gpgme_err_code (err), strerror, __LINE__, __FILE__, keyid);
+            throw gpgme_strerror (err);
         }
 
     }
@@ -1798,7 +1780,7 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
             // NOTE: This doesn't actually work due to an issue with gpgme-1.3.2.
             //  see: https://bugs.g10code.com/gnupg/issue1440 for details
             //err = gpgme_op_encrypt_sign (ctx, NULL, GPGME_ENCRYPT_NO_ENCRYPT_TO, in, out);
-            return "Signed Symmetric Encryption is not yet implemented";
+            throw "Signed Symmetric Encryption is not yet implemented\0";
         } else {
             err = gpgme_op_encrypt_sign (ctx, key, GPGME_ENCRYPT_ALWAYS_TRUST, in, out);
         }
@@ -1813,8 +1795,7 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 
     restoreGPGConfig();
 
-    if (err != GPG_ERR_NO_ERROR)
-        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
     if (enc_to_keyids.size() < 1) {
         // This was a symmetric operation, and gpgme_op_encrypt does not return
@@ -1835,36 +1816,24 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
             error_map_obj["error_string"] = "Passphrase did not match";
             error_map_obj["line"] = __LINE__;
             error_map_obj["file"] = __FILE__;
-            return error_map_obj;
+            throw "Passphrase did not match";
         }
     }
 
     enc_result = gpgme_op_encrypt_result (ctx);
     if (enc_result->invalid_recipients)
     {
-        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+        if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
     }
 
     size_t out_size = 0;
-//    std::string out_buf;
-//    out_buf = gpgme_data_release_and_get_mem (out, &out_size);
-    std::string encoded_str = "";
+//    std::string encoded_str = "";
     char *out_buf = gpgme_data_release_and_get_mem (out, &out_size);
-    if (out_buf != NULL)
-    {
-        encoded_str.resize(out_size);
-        for (size_t i=0; i<out_size; ++i)
-        {
-            encoded_str[i] = out_buf[i];
-        }
-        gpgme_free(out_buf);
-    } else {
-        // handle error
-        return get_error_map(__func__, -1, "Handle of output buffer is NULL", __LINE__, __FILE__);
-    }
 
-    /* strip the size_t data out of the output buffer */
-//    out_buf = out_buf.substr(0, out_size);
+    outfile = fopen(out_filename.c_str(), "wb");
+    fwrite(out_buf, sizeof(char), out_size, outfile);
+    fclose(outfile);
+
     /* set the output object to NULL since it has
         already been released */
     out = NULL;
@@ -1883,25 +1852,30 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 
     response["error"] = false;
 
-
-//    FB::VariantMap response = gpgEncrypt(in_data, enc_to_keyids, sign, opt_signers).cast<FB::VariantMap>();
-//    if (response["error"].cast<bool>()) return response;
-
-//    char *out;
-//    out = gpgme_data_release_and_get_mem(in_data, &size);
-//    std::string filename = file + ".gpg";
-    FILE *outfile = fopen(out_filename.c_str(), "w");
-//    fwrite(out, sizeof(char), size, outfile);
-    fwrite(encoded_str.c_str(), sizeof(char), encoded_str.length(), outfile);
-
-    fclose(outfile);
-//    fclose(in_stream);
-//    delete &in_data;
-//    free(response["data"].cast<std::string>().c_str());
-
     gpgme_set_armor (ctx, armor);
 
     response["data"] = out_filename;
+    }
+    catch (const char *msg)
+    {
+        /* if any of the gpgme objects have not yet
+            been release, do so now */
+        for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++)
+            gpgme_key_unref(key[nrecipients]);
+
+        if (ctx)
+            gpgme_release (ctx);
+        if (in)
+            gpgme_data_release (in);
+        if (out)
+            gpgme_data_release (out);
+
+        gpgme_set_armor (ctx, armor);
+        if (err != GPG_ERR_NO_ERROR)
+            return get_error_map(__func__, gpgme_err_code (err), msg, __LINE__, __FILE__);
+        else
+            return get_error_map(__func__, -1, msg, __LINE__, __FILE__);
+    }
     return response;
 }
 
@@ -2180,12 +2154,9 @@ FB::variant webpgPluginAPI::gpgDecrypt(const std::string& data)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// @fn FB::variant webpgPluginAPI::gpgDecrypt(const std::string& data)
+/// @fn FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
 ///
-/// @brief  Calls webpgPluginAPI::gpgDecryptVerify() with the use_agent flag
-///         specifying to not disable the gpg-agent.
-///
-/// @param  data    The data to decyrpt.
+/// @param  data    The file path to decyrpt.
 ///////////////////////////////////////////////////////////////////////////////
 FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
 {
@@ -2193,7 +2164,6 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     gpgme_data_t in, out, plain;
     std::string plaintext = "";
     int use_agent = 1;
-//    std::string in_data = LoadFileAsString(file);
     err = gpgme_data_new_from_file(&in, file.c_str(), 1);
     if (err != GPG_ERR_NO_ERROR) return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
@@ -2203,7 +2173,7 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     gpgme_signature_t sig;
     gpgme_sig_notation_t notation;
     std::string out_buf;
-    std::string encoded_str = "";
+    std::string filename = file.substr(0, file.find_last_of("."));
     std::string envvar;
     FB::VariantMap response;
     int nsigs;
@@ -2237,11 +2207,6 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     } else {
         ctx = get_gpgme_ctx();
     }
-
-//    err = gpgme_data_new_from_mem (&in, data.c_str(), data.length(), 0);
-//    if (err != GPG_ERR_NO_ERROR) {
-//        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
-//    }
 
     err = gpgme_data_new (&out);
     if (err != GPG_ERR_NO_ERROR) {
@@ -2360,7 +2325,6 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
 
     if (gpgme_err_code (err) == 58 && tnsigs < 1) {
         gpgme_data_release (out);
-//        response["data"] = data;
         response["message_type"] = "detached_signature";
     } else {
         ret = gpgme_data_seek(out, 0, SEEK_SET);
@@ -2375,31 +2339,16 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
             return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
         if (out_buf.length() < 1) {
-//            response["data"] = data;
             response["message_type"] = "detached_signature";
             gpgme_data_release (out);
         } else {
             size_t out_size = 0;
             gpgme_data_seek(out, 0, SEEK_SET);
-//            out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+
             char *local_out_buf = gpgme_data_release_and_get_mem (out, &out_size);
-            if (local_out_buf != NULL)
-            {
-                encoded_str.resize(out_size);
-                for (size_t i=0; i<out_size; ++i)
-                {
-                    encoded_str[i] = local_out_buf[i];
-                }
-                gpgme_free(local_out_buf);
-            } else {
-                // handle error
-                return get_error_map(__func__, -1, "Handle of output buffer is NULL", __LINE__, __FILE__);
-            }
-
-
-            /* strip the size_t data out of the output buffer */
-//            out_buf = out_buf.substr(0, out_size);
-//            response["data"] = out_buf;
+            FILE *outfile = fopen(filename.c_str(), "wb");
+            fwrite(local_out_buf, sizeof(char), out_size, outfile);
+            fclose(outfile);
         }
 
     }
@@ -2408,18 +2357,6 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     response["error"] = false;
     gpgme_data_release (in);
     gpgme_release (ctx);
-
-//    FB::VariantMap response = gpgDecryptVerify(in_data, "", 1).cast<FB::VariantMap>();
-//    if (response["error"].cast<bool>()) return response;
-
-    std::string filename = file.substr(0, file.find_last_of("."));
-    FILE *outfile = fopen(filename.c_str(), "w");
-    fwrite(encoded_str.c_str(), sizeof(char), encoded_str.length(), outfile);
-
-    fclose(outfile);
-//    delete &in_data;
-//    free(response["data"].cast<std::string>().c_str());
-
     response["data"] = filename;
     return response;
 }
