@@ -642,7 +642,7 @@ public:
     ///
     /// @brief  Exports the public key specified with keyid as an ASCII armored encoded PGP Block.
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant gpgExportPublicKey(const std::string& keyid);
+    FB::variant gpgExportKey(const std::string& keyid, int secret);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::gpgPublishPublicKey(const std::string& key_id)

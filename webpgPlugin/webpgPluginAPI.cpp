@@ -154,7 +154,7 @@ webpgPluginAPI::webpgPluginAPI(const webpgPluginPtr& plugin, const FB::BrowserHo
         registerMethod("gpgSetPrimaryUID", make_method(this, &webpgPluginAPI::gpgSetPrimaryUID));
         registerMethod("gpgSetSubkeyExpire", make_method(this, &webpgPluginAPI::gpgSetSubkeyExpire));
         registerMethod("gpgSetPubkeyExpire", make_method(this, &webpgPluginAPI::gpgSetPubkeyExpire));
-        registerMethod("gpgExportPublicKey", make_method(this, &webpgPluginAPI::gpgExportPublicKey));
+        registerMethod("gpgExportKey", make_method(this, &webpgPluginAPI::gpgExportKey));
         registerMethod("gpgPublishPublicKey", make_method(this, &webpgPluginAPI::gpgPublishPublicKey));
         registerMethod("gpgRevokeKey", make_method(this, &webpgPluginAPI::gpgRevokeKey));
         registerMethod("gpgRevokeUID", make_method(this, &webpgPluginAPI::gpgRevokeUID));
@@ -1695,167 +1695,167 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
     try
     {
 
-    err = gpgme_data_new_from_file(&in, file.c_str(), 1);
-    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    err = gpgme_data_new_from_file(&in, file.c_str(), 1);
+	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-    if (opt_signers)
-        signers = *opt_signers;
+	    if (opt_signers)
+		signers = *opt_signers;
 
-    if (sign && sign == true && signers.size() > 0) {
-        int nsigners;
-        FB::variant signer;
-        
-        gpgme_key_t signing_key;
-        for (nsigners=0; nsigners < signers.size(); nsigners++) {
-            signer = signers[nsigners];
-            err = gpgme_op_keylist_start (ctx, signer.convert_cast<std::string>().c_str(), 0);
-            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    if (sign && sign == true && signers.size() > 0) {
+		int nsigners;
+		FB::variant signer;
+		
+		gpgme_key_t signing_key;
+		for (nsigners=0; nsigners < signers.size(); nsigners++) {
+		    signer = signers[nsigners];
+		    err = gpgme_op_keylist_start (ctx, signer.convert_cast<std::string>().c_str(), 0);
+		    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-            err = gpgme_op_keylist_next (ctx, &signing_key);
-            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+		    err = gpgme_op_keylist_next (ctx, &signing_key);
+		    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-            err = gpgme_op_keylist_end (ctx);
-            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+		    err = gpgme_op_keylist_end (ctx);
+		    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-            err = gpgme_signers_add (ctx, signing_key);
-            if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+		    err = gpgme_signers_add (ctx, signing_key);
+		    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-            gpgme_key_unref (signing_key);
+		    gpgme_key_unref (signing_key);
 
-        }
+		}
 
-        if (!nsigners > 0)
-            throw "No signing keys found\0";
-    }
+		if (!nsigners > 0)
+		    throw "No signing keys found\0";
+	    }
 
-    err = gpgme_data_set_encoding(in, GPGME_DATA_ENCODING_BINARY);
-    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    err = gpgme_data_set_encoding(in, GPGME_DATA_ENCODING_BINARY);
+	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
 
-    err = gpgme_data_new(&out);
-    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    err = gpgme_data_new(&out);
+	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-    err = gpgme_data_set_encoding(out, GPGME_DATA_ENCODING_BINARY);
-    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    err = gpgme_data_set_encoding(out, GPGME_DATA_ENCODING_BINARY);
+	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-    for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++) {
+	    for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++) {
 
-        recipient = enc_to_keyids[nrecipients];
+		recipient = enc_to_keyids[nrecipients];
 
-        err = gpgme_get_key (ctx, recipient.convert_cast<std::string>().c_str(), &key[nrecipients], 0);
-        if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+		err = gpgme_get_key (ctx, recipient.convert_cast<std::string>().c_str(), &key[nrecipients], 0);
+		if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-        // Check if key is unusable/invalid
-        unusable_key = key[nrecipients]->invalid? true :
-            key[nrecipients]->expired? true :
-            key[nrecipients]->revoked? true :
-            key[nrecipients]->disabled? true : false;
+		// Check if key is unusable/invalid
+		unusable_key = key[nrecipients]->invalid? true :
+		    key[nrecipients]->expired? true :
+		    key[nrecipients]->revoked? true :
+		    key[nrecipients]->disabled? true : false;
 
-        if (unusable_key) {
-            // Somehow an ususable/invalid key has been passed to the method
-            std::string keyid = key[nrecipients]->subkeys->fpr;
+		if (unusable_key) {
+		    // Somehow an ususable/invalid key has been passed to the method
+		    std::string keyid = key[nrecipients]->subkeys->fpr;
 
-            std::string strerror = key[nrecipients]->invalid? "Invalid key" :
-            key[nrecipients]->expired? "Key expired" :
-            key[nrecipients]->revoked? "Key revoked" :
-            key[nrecipients]->disabled? "Key disabled" : "Unknown error";
+		    std::string strerror = key[nrecipients]->invalid? "Invalid key" :
+		    key[nrecipients]->expired? "Key expired" :
+		    key[nrecipients]->revoked? "Key revoked" :
+		    key[nrecipients]->disabled? "Key disabled" : "Unknown error";
 
-            err = key[nrecipients]->invalid? 53 :
-            key[nrecipients]->expired? 153 :
-            key[nrecipients]->revoked? 94 :
-            key[nrecipients]->disabled? 53 : GPG_ERR_UNKNOWN_ERRNO;
+		    err = key[nrecipients]->invalid? 53 :
+		    key[nrecipients]->expired? 153 :
+		    key[nrecipients]->revoked? 94 :
+		    key[nrecipients]->disabled? 53 : GPG_ERR_UNKNOWN_ERRNO;
 
-            throw gpgme_strerror (err);
-        }
+		    throw gpgme_strerror (err);
+		}
 
-    }
+	    }
 
-    // NULL terminate the key array
-    key[enc_to_keyids.size()] = NULL;
+	    // NULL terminate the key array
+	    key[enc_to_keyids.size()] = NULL;
 
-    setTempGPGOption("force-mdc", "");
+	    setTempGPGOption("force-mdc", "");
 
-    if (sign && sign == true) {
-        if (enc_to_keyids.size() < 1) {
-            // NOTE: This doesn't actually work due to an issue with gpgme-1.3.2.
-            //  see: https://bugs.g10code.com/gnupg/issue1440 for details
-            //err = gpgme_op_encrypt_sign (ctx, NULL, GPGME_ENCRYPT_NO_ENCRYPT_TO, in, out);
-            throw "Signed Symmetric Encryption is not yet implemented\0";
-        } else {
-            err = gpgme_op_encrypt_sign (ctx, key, GPGME_ENCRYPT_ALWAYS_TRUST, in, out);
-        }
-    } else {
-        if (enc_to_keyids.size() < 1) {
-            // Symmetric encrypt
-            err = gpgme_op_encrypt (ctx, NULL, GPGME_ENCRYPT_NO_ENCRYPT_TO, in, out);
-        } else {
-            err = gpgme_op_encrypt (ctx, key, GPGME_ENCRYPT_ALWAYS_TRUST, in, out);
-        }
-    }
+	    if (sign && sign == true) {
+		if (enc_to_keyids.size() < 1) {
+		    // NOTE: This doesn't actually work due to an issue with gpgme-1.3.2.
+		    //  see: https://bugs.g10code.com/gnupg/issue1440 for details
+		    //err = gpgme_op_encrypt_sign (ctx, NULL, GPGME_ENCRYPT_NO_ENCRYPT_TO, in, out);
+		    throw "Signed Symmetric Encryption is not yet implemented\0";
+		} else {
+		    err = gpgme_op_encrypt_sign (ctx, key, GPGME_ENCRYPT_ALWAYS_TRUST, in, out);
+		}
+	    } else {
+		if (enc_to_keyids.size() < 1) {
+		    // Symmetric encrypt
+		    err = gpgme_op_encrypt (ctx, NULL, GPGME_ENCRYPT_NO_ENCRYPT_TO, in, out);
+		} else {
+		    err = gpgme_op_encrypt (ctx, key, GPGME_ENCRYPT_ALWAYS_TRUST, in, out);
+		}
+	    }
 
-    restoreGPGConfig();
+	    restoreGPGConfig();
 
-    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
-    if (enc_to_keyids.size() < 1) {
-        // This was a symmetric operation, and gpgme_op_encrypt does not return
-        //  an error if the passphrase is incorrect, so we need to check the
-        //  returned value for actual substance.
-        gpgme_data_seek(out, 0, SEEK_SET);
-        char buf[513];
-        gpgme_data_read (out, buf, 512);
-        int buflen = strlen(buf);
-        if (buflen < 52) {
-            gpgme_release (ctx);
-            gpgme_data_release (in);
-            gpgme_data_release (out);
-            FB::VariantMap error_map_obj;
-            error_map_obj["error"] = true;
-            error_map_obj["method"] = __func__;
-            error_map_obj["gpg_error_code"] = "11";
-            error_map_obj["error_string"] = "Passphrase did not match";
-            error_map_obj["line"] = __LINE__;
-            error_map_obj["file"] = __FILE__;
-            throw "Passphrase did not match";
-        }
-    }
+	    if (enc_to_keyids.size() < 1) {
+		// This was a symmetric operation, and gpgme_op_encrypt does not return
+		//  an error if the passphrase is incorrect, so we need to check the
+		//  returned value for actual substance.
+		gpgme_data_seek(out, 0, SEEK_SET);
+		char buf[513];
+		gpgme_data_read (out, buf, 512);
+		int buflen = strlen(buf);
+		if (buflen < 52) {
+		    gpgme_release (ctx);
+		    gpgme_data_release (in);
+		    gpgme_data_release (out);
+		    FB::VariantMap error_map_obj;
+		    error_map_obj["error"] = true;
+		    error_map_obj["method"] = __func__;
+		    error_map_obj["gpg_error_code"] = "11";
+		    error_map_obj["error_string"] = "Passphrase did not match";
+		    error_map_obj["line"] = __LINE__;
+		    error_map_obj["file"] = __FILE__;
+		    throw "Passphrase did not match";
+		}
+	    }
 
-    enc_result = gpgme_op_encrypt_result (ctx);
-    if (enc_result->invalid_recipients)
-    {
-        if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
-    }
+	    enc_result = gpgme_op_encrypt_result (ctx);
+	    if (enc_result->invalid_recipients)
+	    {
+		if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+	    }
 
-    size_t out_size = 0;
-//    std::string encoded_str = "";
-    char *out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+	    size_t out_size = 0;
+	//    std::string encoded_str = "";
+	    char *out_buf = gpgme_data_release_and_get_mem (out, &out_size);
 
-    outfile = fopen(out_filename.c_str(), "wb");
-    fwrite(out_buf, sizeof(char), out_size, outfile);
-    fclose(outfile);
+	    outfile = fopen(out_filename.c_str(), "wb");
+	    fwrite(out_buf, sizeof(char), out_size, outfile);
+	    fclose(outfile);
 
-    /* set the output object to NULL since it has
-        already been released */
-    out = NULL;
+	    /* set the output object to NULL since it has
+		already been released */
+	    out = NULL;
 
-    /* if any of the gpgme objects have not yet
-        been release, do so now */
-    for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++)
-        gpgme_key_unref(key[nrecipients]);
+	    /* if any of the gpgme objects have not yet
+		been release, do so now */
+	    for (nrecipients=0; nrecipients < enc_to_keyids.size(); nrecipients++)
+		gpgme_key_unref(key[nrecipients]);
 
-    if (ctx)
-        gpgme_release (ctx);
-    if (in)
-        gpgme_data_release (in);
-    if (out)
-        gpgme_data_release (out);
+	    if (ctx)
+		gpgme_release (ctx);
+	    if (in)
+		gpgme_data_release (in);
+	    if (out)
+		gpgme_data_release (out);
 
-    response["error"] = false;
+	    response["error"] = false;
 
-    gpgme_set_armor (ctx, armor);
+	    gpgme_set_armor (ctx, armor);
 
-    response["data"] = out_filename;
-    }
+	    response["data"] = out_filename;
+	    }
     catch (const char *msg)
     {
         /* if any of the gpgme objects have not yet
@@ -3704,7 +3704,7 @@ response {
 @endverbatim
 */
 ///////////////////////////////////////////////////////////////////////////////
-FB::variant webpgPluginAPI::gpgExportPublicKey(const std::string& keyid)
+FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret)
 {
     gpgme_ctx_t ctx = get_gpgme_ctx();
     gpgme_error_t err;
@@ -3715,7 +3715,7 @@ FB::variant webpgPluginAPI::gpgExportPublicKey(const std::string& keyid)
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
-    err = gpgme_op_export (ctx, keyid.c_str(), 0, out);
+    err = gpgme_op_export (ctx, keyid.c_str(), 0, out, secret);
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
