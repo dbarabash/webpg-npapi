@@ -314,7 +314,7 @@ public:
     /// @param  enc_to_keyids   A VariantList of key ids to encrypt to (recpients).
     /// @param  sign    The data should be also be signed.
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant gpgEncryptFile(const std::string& filename,
+    FB::variant gpgEncryptFile(const std::string& data, const std::string& file,
         const FB::VariantList& enc_to_keyids, const boost::optional<bool>& sign, const boost::optional<FB::VariantList>& opt_signers);
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -379,7 +379,7 @@ public:
     ///
     /// @param  data    The data to decyrpt.
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant gpgDecryptFile(const std::string& file);
+    FB::variant gpgDecryptFile(const std::string& data);
 
     FB::variant gpgVerify(const std::string& data, const boost::optional<std::string>& plaintext);
 

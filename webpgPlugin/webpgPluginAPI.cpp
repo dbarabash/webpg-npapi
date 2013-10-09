@@ -77,6 +77,100 @@ std::string LoadFileAsString(const std::string& filename)
     return oss.str();
 }
 
+static const std::string base64_chars = 
+             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+             "abcdefghijklmnopqrstuvwxyz"
+             "0123456789+/";
+
+
+static inline bool is_base64(unsigned char c) {
+  return (isalnum(c) || (c == '+') || (c == '/'));
+}
+
+std::string base64_encode(unsigned char const* bytes_to_encode, unsigned int in_len) {
+  std::string ret;
+  int i = 0;
+  int j = 0;
+  unsigned char char_array_3[3];
+  unsigned char char_array_4[4];
+
+  while (in_len--) {
+    char_array_3[i++] = *(bytes_to_encode++);
+    if (i == 3) {
+      char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+      char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+      char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+      char_array_4[3] = char_array_3[2] & 0x3f;
+
+      for(i = 0; (i <4) ; i++)
+        ret += base64_chars[char_array_4[i]];
+      i = 0;
+    }
+  }
+
+  if (i)
+  {
+    for(j = i; j < 3; j++)
+      char_array_3[j] = '\0';
+
+    char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+    char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+    char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+    char_array_4[3] = char_array_3[2] & 0x3f;
+
+    for (j = 0; (j < i + 1); j++)
+      ret += base64_chars[char_array_4[j]];
+
+    while((i++ < 3))
+      ret += '=';
+
+  }
+
+  return ret;
+
+}
+
+std::string base64_decode(std::string const& encoded_string) {
+  size_t in_len = encoded_string.size();
+  size_t i = 0;
+  size_t j = 0;
+  int in_ = 0;
+  unsigned char char_array_4[4], char_array_3[3];
+  std::string ret;
+
+  while (in_len-- && ( encoded_string[in_] != '=') && is_base64(encoded_string[in_])) {
+    char_array_4[i++] = encoded_string[in_]; in_++;
+    if (i ==4) {
+      for (i = 0; i <4; i++)
+        char_array_4[i] = static_cast<unsigned char>(base64_chars.find(char_array_4[i]));
+
+      char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+      char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+      char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+      for (i = 0; (i < 3); i++)
+        ret += char_array_3[i];
+      i = 0;
+    }
+  }
+
+  if (i) {
+    for (j = i; j <4; j++)
+      char_array_4[j] = 0;
+
+    for (j = 0; j <4; j++)
+      char_array_4[j] = static_cast<unsigned char>(base64_chars.find(char_array_4[j]));
+
+    char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+    char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+    char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+    for (j = 0; (j < i - 1); j++) ret += char_array_3[j];
+  }
+
+  return ret;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// @fn webpgPluginAPI::webpgPluginAPI(const webpgPluginPtr& plugin, const FB::BrowserHostPtr host)
 ///
@@ -1664,7 +1758,7 @@ FB::variant webpgPluginAPI::gpgEncrypt(const std::string& data,
 /* This method accepts 4 parameters, data, enc_to_keyid, 
     sign [optional; default: 0:NULL:false] and opt_signers
     the return value is a file path of the result */
-FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file, 
+FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& data, const std::string& file, 
         const FB::VariantList& enc_to_keyids, const boost::optional<bool>& sign, const boost::optional<FB::VariantList>& opt_signers)
 {
     /* declare variables */
@@ -1685,17 +1779,19 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
     gpgme_encrypt_result_t enc_result;
     FB::VariantMap response;
     bool unusable_key = false;
-    FILE *outfile;
-    std::string out_filename = file + ".gpg";
 
     gpgme_ctx_t ctx = get_gpgme_ctx();
     int armor = gpgme_get_armor (ctx);
     gpgme_set_armor (ctx, 0);
+    std::string in_data = base64_decode(data);
 
     try
     {
 
-	    err = gpgme_data_new_from_file(&in, file.c_str(), 1);
+	    err = gpgme_data_new_from_mem(&in, in_data.c_str(), in_data.length(), 0);
+	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
+
+            err = gpgme_data_set_file_name(in, file.c_str());
 	    if (err != GPG_ERR_NO_ERROR) throw gpgme_strerror (err);
 
 	    if (opt_signers)
@@ -1827,12 +1923,11 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 	    }
 
 	    size_t out_size = 0;
-	//    std::string encoded_str = "";
 	    char *out_buf = gpgme_data_release_and_get_mem (out, &out_size);
 
-	    outfile = fopen(out_filename.c_str(), "wb");
-	    fwrite(out_buf, sizeof(char), out_size, outfile);
-	    fclose(outfile);
+//            std::string out_data = "";
+//	    out_data.append(out_buf, out_size);
+	    std::string out_data = base64_encode((unsigned char *)out_buf, out_size);
 
 	    /* set the output object to NULL since it has
 		already been released */
@@ -1854,7 +1949,7 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& file,
 
 	    gpgme_set_armor (ctx, armor);
 
-	    response["data"] = out_filename;
+	    response["data"] = out_data;
 	    }
     catch (const char *msg)
     {
@@ -2158,13 +2253,14 @@ FB::variant webpgPluginAPI::gpgDecrypt(const std::string& data)
 ///
 /// @param  data    The file path to decyrpt.
 ///////////////////////////////////////////////////////////////////////////////
-FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
+FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& data)
 {
     gpgme_error_t err;
     gpgme_data_t in, out, plain;
     std::string plaintext = "";
     int use_agent = 1;
-    err = gpgme_data_new_from_file(&in, file.c_str(), 1);
+    std::string in_data = base64_decode(data);
+    err = gpgme_data_new_from_mem(&in, in_data.c_str(), in_data.length(), 0);
     if (err != GPG_ERR_NO_ERROR) return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
     gpgme_ctx_t ctx;
@@ -2173,7 +2269,6 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
     gpgme_signature_t sig;
     gpgme_sig_notation_t notation;
     std::string out_buf;
-    std::string filename = file.substr(0, file.find_last_of("."));
     std::string envvar;
     FB::VariantMap response;
     int nsigs;
@@ -2346,18 +2441,18 @@ FB::variant webpgPluginAPI::gpgDecryptFile(const std::string& file)
             gpgme_data_seek(out, 0, SEEK_SET);
 
             char *local_out_buf = gpgme_data_release_and_get_mem (out, &out_size);
-            FILE *outfile = fopen(filename.c_str(), "wb");
-            fwrite(local_out_buf, sizeof(char), out_size, outfile);
-            fclose(outfile);
+            std::string out_data = base64_encode((unsigned char *)local_out_buf, out_size);//"";
+            response["data"] = out_data;
+
         }
 
     }
 
     response["signatures"] = signatures;
     response["error"] = false;
+    response["filename"] = decrypt_result->file_name;
     gpgme_data_release (in);
     gpgme_release (ctx);
-    response["data"] = filename;
     return response;
 }
 
