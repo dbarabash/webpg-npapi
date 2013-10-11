@@ -141,6 +141,7 @@ public:
     /// @brief  Creates the gpgme context with the required options.
     ///////////////////////////////////////////////////////////////////////////////
     gpgme_ctx_t get_gpgme_ctx();
+    gpgme_ctx_t get_gpgme_ctx(const std::string& keyserver);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::VariantMap webpgPluginAPI::getKeyList(cont std::string& name, int secret_only)
@@ -150,6 +151,7 @@ public:
     ///         by the integer value of secret_only.
     ///////////////////////////////////////////////////////////////////////////////
     FB::VariantMap getKeyList(const std::string& name, int secret_only);
+    FB::VariantMap getExternalKeyList(const std::string& name, int secret_only, const std::string& keyserver);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::getNamedKey(const std::string& name)
@@ -167,7 +169,7 @@ public:
     ///         external mode with a search string and the secret_only paramter as
     ///         "0", which returns only Public Keys
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant getExternalKey(const std::string& name);
+    FB::variant getExternalKey(const std::string& name, const std::string& keyserver);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::getPublicKeyList()

@@ -461,6 +461,13 @@ gpgme_ctx_t webpgPluginAPI::get_gpgme_ctx()
     return ctx;
 }
 
+gpgme_ctx_t webpgPluginAPI::get_gpgme_ctx(const std::string& keyserver)
+{
+    gpgme_ctx_t ctx = get_gpgme_ctx();
+    gpgme_set_keyserver(ctx, keyserver.c_str());
+    return ctx;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// @fn std::string webpgPluginAPI::getGPGConfigFilename()
 ///
@@ -1002,6 +1009,184 @@ FB::VariantMap webpgPluginAPI::getKeyList(const std::string& name, int secret_on
     return keylist_map;
 }
 
+FB::VariantMap webpgPluginAPI::getExternalKeyList(const std::string& name, int secret_only, const std::string& keyserver)
+{
+    /* declare variables */
+    gpgme_ctx_t ctx = get_gpgme_ctx(keyserver);
+    gpgme_error_t err;
+    gpgme_key_t key;
+    gpgme_keylist_result_t result;
+    gpgme_sig_notation_t notation;
+    FB::VariantMap keylist_map;
+    gpgme_ctx_t edit_ctx = get_gpgme_ctx(keyserver);
+    /* set protocol to use in our context */
+    err = gpgme_set_protocol(ctx, GPGME_PROTOCOL_OpenPGP);
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+
+    /* apply the keylist mode to the context and set
+        the keylist_mode 
+        NOTE: The keylist mode flag GPGME_KEYLIST_MODE_SIGS 
+            returns the signatures of UIDS with the key */
+    err = gpgme_set_keylist_mode (ctx, (gpgme_get_keylist_mode (ctx)
+                                | GPGME_KEYLIST_MODE_LOCAL
+                                | GPGME_KEYLIST_MODE_SIGS
+                                | GPGME_KEYLIST_MODE_SIG_NOTATIONS));
+
+    if (EXTERNAL == 1) {
+        err = gpgme_set_keylist_mode (ctx, GPGME_KEYLIST_MODE_EXTERN
+                                        | GPGME_KEYLIST_MODE_SIGS);
+        EXTERNAL = 0;
+    }
+
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+
+    /* gpgme_op_keylist_start (gpgme_ctx_t ctx, const char *pattern, int secret_only) */
+    if (name.length() > 0){ // limit key listing to search criteria 'name'
+        err = gpgme_op_keylist_start (ctx, name.c_str(), secret_only);
+    } else { // list all keys
+        err = gpgme_op_keylist_start (ctx, NULL, secret_only);
+    }
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+
+    while (!(err = gpgme_op_keylist_next (ctx, &key)))
+     {
+        /*declare nuids (Number of UIDs) 
+            and nsigs (Number of signatures)
+            and nsubs (Number of Subkeys)*/
+        FB::VariantMap key_map;
+
+        /* if secret keys being returned, re-retrieve the key so we get all of the key info */ 
+        if(secret_only != 0 && key->subkeys && key->subkeys->keyid)
+            err = gpgme_get_key (ctx, key->subkeys->keyid, &key, 0);
+
+        /* iterate through the keys/subkeys and add them to the key_map object */
+        if (key->uids && key->uids->name)
+            key_map["name"] = nonnull (key->uids->name);
+        if (key->subkeys && key->subkeys->fpr)
+            key_map["fingerprint"] = nonnull (key->subkeys->fpr);
+        if (key->uids && key->uids->email)
+            key_map["email"] = nonnull (key->uids->email);
+        key_map["expired"] = key->expired? true : false;
+        key_map["revoked"] = key->revoked? true : false;
+        key_map["disabled"] = key->disabled? true : false;
+        key_map["invalid"] = key->invalid? true : false;
+        key_map["secret"] = key->secret? true : (secret_only) ? true : false;
+        key_map["protocol"] = key->protocol == GPGME_PROTOCOL_OpenPGP? "OpenPGP":
+            key->protocol == GPGME_PROTOCOL_CMS? "CMS":
+            key->protocol == GPGME_PROTOCOL_UNKNOWN? "Unknown": "[?]";
+        key_map["can_encrypt"] = key->can_encrypt? true : false;
+        key_map["can_sign"] = key->can_sign? true : false;
+        key_map["can_certify"] = key->can_certify? true : false;
+        key_map["can_authenticate"] = key->can_authenticate? true : false;
+        key_map["is_qualified"] = key->is_qualified? true : false;
+        key_map["owner_trust"] = key->owner_trust == GPGME_VALIDITY_UNKNOWN? "unknown":
+            key->owner_trust == GPGME_VALIDITY_UNDEFINED? "undefined":
+            key->owner_trust == GPGME_VALIDITY_NEVER? "never":
+            key->owner_trust == GPGME_VALIDITY_MARGINAL? "marginal":
+            key->owner_trust == GPGME_VALIDITY_FULL? "full":
+            key->owner_trust == GPGME_VALIDITY_ULTIMATE? "ultimate": "[?]";
+
+        int nsubs;
+        gpgme_subkey_t subkey;
+        FB::VariantMap subkeys_map;
+        for (nsubs=0, subkey=key->subkeys; subkey; subkey = subkey->next, nsubs++) {
+            FB::VariantMap subkey_item_map;
+            subkey_item_map["subkey"] = nonnull (subkey->fpr);
+            subkey_item_map["expired"] = subkey->expired? true : false;
+            subkey_item_map["revoked"] = subkey->revoked? true : false;
+            subkey_item_map["disabled"] = subkey->disabled? true : false;
+            subkey_item_map["invalid"] = subkey->invalid? true : false;
+            subkey_item_map["secret"] = subkey->secret? true : false;
+            subkey_item_map["can_encrypt"] = subkey->can_encrypt? true : false;
+            subkey_item_map["can_sign"] = subkey->can_sign? true : false;
+            subkey_item_map["can_certify"] = subkey->can_certify? true : false;
+            subkey_item_map["can_authenticate"] = subkey->can_authenticate? true : false;
+            subkey_item_map["is_qualified"] = subkey->is_qualified? true : false;
+            subkey_item_map["algorithm"] = subkey->pubkey_algo;
+            subkey_item_map["algorithm_name"] = nonnull (gpgme_pubkey_algo_name(subkey->pubkey_algo));
+            subkey_item_map["size"] = subkey->length;
+            subkey_item_map["created"] = subkey->timestamp;
+            subkey_item_map["expires"] = subkey->expires;
+            subkeys_map[i_to_str(nsubs)] = subkey_item_map;
+        }
+
+        key_map["subkeys"] = subkeys_map;
+        int nuids;
+        gpgme_user_id_t uid;
+        FB::VariantMap uids_map;
+        for (nuids=0, uid=key->uids; uid; uid = uid->next, nuids++) {
+            FB::VariantMap uid_item_map;
+            uid_item_map["uid"] = nonnull (uid->name);
+            uid_item_map["email"] = nonnull (uid->email);
+            uid_item_map["comment"] = nonnull (uid->comment);
+            uid_item_map["invalid"] = uid->invalid? true : false;
+            uid_item_map["revoked"] = uid->revoked? true : false;
+
+            int nsigs;
+            gpgme_key_sig_t sig;
+            FB::VariantMap signatures_map;
+            for (nsigs=0, sig=uid->signatures; sig; sig = sig->next, nsigs++) {
+                FB::VariantMap signature_map, notations_map;
+                signature_map["keyid"] = nonnull (sig->keyid);
+                signature_map["algorithm"] = sig->pubkey_algo;
+                signature_map["algorithm_name"] = nonnull (gpgme_pubkey_algo_name(sig->pubkey_algo));
+                signature_map["revoked"] = sig->revoked? true : false;
+                signature_map["expired"] = sig->expired? true : false;
+                signature_map["invalid"] = sig->invalid? true : false;
+                signature_map["exportable"] = sig->exportable? true : false;
+                signature_map["created"] = sig->timestamp;
+                signature_map["expires"] = sig->expires;
+                signature_map["uid"] = nonnull (sig->uid);
+                signature_map["name"] = nonnull (sig->name);
+                signature_map["comment"] = nonnull (sig->comment);
+                signature_map["email"] = nonnull (sig->email);
+                int nnotations;
+                FB::VariantMap notation_map;
+                for (nnotations=0, notation=sig->notations; notation; notation = notation->next, nnotations++) {
+                    notation_map["name"] = nonnull (notation->name);
+                    notation_map["name_len"] = notation->name_len;
+                    notation_map["value"] = nonnull (notation->value);
+                    notation_map["value_len"] = notation->value_len;
+                    notations_map[i_to_str(nnotations)] = notation_map;
+                }
+                signature_map["notations"] = notations_map;
+                signatures_map[i_to_str(nsigs)] = signature_map;
+            }
+            uid_item_map["signatures_count"] = nsigs;
+            uid_item_map["signatures"] = signatures_map;
+            uid_item_map["validity"] = uid->validity == GPGME_VALIDITY_UNKNOWN? "unknown":
+                uid->validity == GPGME_VALIDITY_UNDEFINED? "undefined":
+                uid->validity == GPGME_VALIDITY_NEVER? "never":
+                uid->validity == GPGME_VALIDITY_MARGINAL? "marginal":
+                uid->validity == GPGME_VALIDITY_FULL? "full":
+                uid->validity == GPGME_VALIDITY_ULTIMATE? "ultimate": "[?]";
+            uids_map[i_to_str(nuids)] = uid_item_map;
+        }
+        key_map["uids"] = uids_map;
+        key_map["nuids"] = nuids;
+
+        keylist_map[key->subkeys->keyid] = key_map;
+        gpgme_key_unref (key);
+    }
+
+    if (gpg_err_code (err) != GPG_ERR_EOF)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    err = gpgme_op_keylist_end (ctx);
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    result = gpgme_op_keylist_result (ctx);
+    if (result->truncated)
+     {
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+     }
+    gpgme_release (ctx);
+    gpgme_release (edit_ctx);
+    return keylist_map;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// @fn FB::variant webpgPluginAPI::getPublicKeyList()
 ///
@@ -1125,12 +1310,12 @@ FB::variant webpgPluginAPI::getNamedKey(const std::string& name)
     This method just calls webpgPlugin.getKeyList with a name/email
         as the parameter
 */
-FB::variant webpgPluginAPI::getExternalKey(const std::string& name)
+FB::variant webpgPluginAPI::getExternalKey(const std::string& name, const std::string& keyserver)
 {
     EXTERNAL = 1;
 
     // Retrieve the keylist as a VariantMap
-    FB::variant keylist = webpgPluginAPI::getKeyList(name, 0);
+    FB::variant keylist = webpgPluginAPI::getExternalKeyList(name, 0, keyserver);
 
     // Retrieve a reference to the DOM Window
     FB::DOM::WindowPtr window = m_host->getDOMWindow();
