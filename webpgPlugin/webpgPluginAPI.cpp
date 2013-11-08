@@ -3351,8 +3351,9 @@ FB::variant webpgPluginAPI::gpgImportKey(const std::string& ascii_key)
     gpgme_error_t err;
     gpgme_data_t key_buf;
     gpgme_import_result_t result;
+    std::string in_data = base64_decode(ascii_key);
 
-    err = gpgme_data_new_from_mem (&key_buf, ascii_key.c_str(), ascii_key.length(), 1);
+    err = gpgme_data_new_from_mem (&key_buf, in_data.c_str(), in_data.length(), 1);
 
     err = gpgme_op_import (ctx, key_buf);
 
@@ -3991,6 +3992,9 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret)
     gpgme_data_t out = NULL;
     FB::VariantMap response;
 
+    int armor = gpgme_get_armor (ctx);
+    gpgme_set_armor (ctx, 0);
+
     err = gpgme_data_new (&out);
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
@@ -4010,10 +4014,14 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret)
         already been released */
     out = NULL;
 
+    gpgme_set_armor (ctx, armor);
+
     gpgme_release (ctx);
 
+    std::string out_data = base64_encode((unsigned char *)out_buf.c_str(), out_size);
+
     response["error"] = false;
-    response["result"] = out_buf;
+    response["result"] = out_data;
 
     return response;
 }
@@ -4035,6 +4043,9 @@ FB::variant webpgPluginAPI::gpgPublishPublicKey(const std::string& key_id)
     gpgme_key_t key_array[2];
     gpgme_export_mode_t mode = 0;
     FB::VariantMap response;
+
+    int armor = gpgme_get_armor (ctx);
+    gpgme_set_armor (ctx, 0);
 
     FB::variant keyserver_option = webpgPluginAPI::gpgGetPreference("keyserver");
     Json::Value json_value = FB::variantToJsonValue(keyserver_option);
@@ -4060,6 +4071,8 @@ FB::variant webpgPluginAPI::gpgPublishPublicKey(const std::string& key_id)
     err = gpgme_op_export_keys (ctx, key_array, mode, 0);
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+
+    gpgme_set_armor (ctx, armor);
 
     gpgme_key_unref (key);
     gpgme_release (ctx);
