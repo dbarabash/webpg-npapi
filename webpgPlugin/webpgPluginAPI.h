@@ -486,13 +486,13 @@ public:
     void threaded_gpgGenSubKey(genSubKeyParams params);
 
     ///////////////////////////////////////////////////////////////////////////////
-    /// @fn FB::variant webpgPluginAPI::gpgImportKey(const std::string& ascii_key)
+    /// @fn FB::variant webpgPluginAPI::gpgImportKey(const std::string& ascii_key, int armor)
     ///
     /// @brief  Imports the ASCII encoded key ascii_key
     ///
     /// @param  ascii_key   An armored, ascii encoded PGP Key block.
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant gpgImportKey(const std::string& ascii_key);
+    FB::variant gpgImportKey(const std::string& ascii_key, int armor);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::gpgImportExternalKey(const std::string& ascii_key)
@@ -640,11 +640,11 @@ public:
         long expire);
 
     ///////////////////////////////////////////////////////////////////////////////
-    /// @fn FB::variant webpgPluginAPI::gpgExportPublicKey(const std::string& keyid)
+    /// @fn FB::variant webpgPluginAPI::gpgExportPublicKey(const std::string& keyid, int secret, int armor)
     ///
     /// @brief  Exports the public key specified with keyid as an ASCII armored encoded PGP Block.
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant gpgExportKey(const std::string& keyid, int secret);
+    FB::variant gpgExportKey(const std::string& keyid, int secret, int armor);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::gpgPublishPublicKey(const std::string& key_id)

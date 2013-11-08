@@ -3345,13 +3345,13 @@ std::string webpgPluginAPI::gpgGenKey(const std::string& key_type,
 ///
 /// @param  ascii_key   An armored, ascii encoded PGP Key block.
 ///////////////////////////////////////////////////////////////////////////////
-FB::variant webpgPluginAPI::gpgImportKey(const std::string& ascii_key)
+FB::variant webpgPluginAPI::gpgImportKey(const std::string& ascii_key, int base64)
 {
     gpgme_ctx_t ctx = get_gpgme_ctx();
     gpgme_error_t err;
     gpgme_data_t key_buf;
     gpgme_import_result_t result;
-    std::string in_data = base64_decode(ascii_key);
+    std::string in_data = base64 ? base64_decode(ascii_key) : ascii_key;
 
     err = gpgme_data_new_from_mem (&key_buf, in_data.c_str(), in_data.length(), 1);
 
@@ -3985,15 +3985,15 @@ response {
 @endverbatim
 */
 ///////////////////////////////////////////////////////////////////////////////
-FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret)
+FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, int armor)
 {
     gpgme_ctx_t ctx = get_gpgme_ctx();
     gpgme_error_t err;
     gpgme_data_t out = NULL;
     FB::VariantMap response;
 
-    int armor = gpgme_get_armor (ctx);
-    gpgme_set_armor (ctx, 0);
+    int default_armor = gpgme_get_armor (ctx);
+    gpgme_set_armor (ctx, armor);
 
     err = gpgme_data_new (&out);
     if (err != GPG_ERR_NO_ERROR)
@@ -4014,14 +4014,13 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret)
         already been released */
     out = NULL;
 
-    gpgme_set_armor (ctx, armor);
+    gpgme_set_armor (ctx, default_armor);
 
     gpgme_release (ctx);
 
-    std::string out_data = base64_encode((unsigned char *)out_buf.c_str(), out_size);
+    response["result"] = armor ? out_buf : base64_encode((unsigned char *)out_buf.c_str(), out_size);
 
     response["error"] = false;
-    response["result"] = out_data;
 
     return response;
 }
