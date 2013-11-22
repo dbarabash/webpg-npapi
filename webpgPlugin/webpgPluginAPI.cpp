@@ -4024,10 +4024,6 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
 
     gpgme_release (ctx);
 
-    FILE *file = fopen("/home/dmitriy/Documents/work/tmp/webpg/key.gpg", "w");
-    fwrite(out_buf.c_str(), sizeof(char), out_size, file);
-    fclose(file);
-
     response["result"] = armor ? out_buf : base64_encode((unsigned char *)out_buf.c_str(), out_size);
 
     response["error"] = false;
