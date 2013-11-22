@@ -34,7 +34,15 @@
 /* Include stdio.h for the FILE type definition.  */
 #include <stdio.h>
 #include <time.h>
-#include <gpg-error.h>
+
+#ifdef HAVE_W32_SYSTEM
+#include "../../libgpg-error/WINNT_x86-msvc/gpg-error.h"
+#elif FB_MACOSX
+#include "../../libgpg-error/Darwin_x86_64-gcc/gpg-error.h"
+#else
+#include "../../libgpg-error/Linux_x86-gcc/gpg-error.h"
+#endif
+
 
 #ifdef __cplusplus
 extern "C" {

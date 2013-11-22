@@ -3354,8 +3354,12 @@ FB::variant webpgPluginAPI::gpgImportKey(const std::string& ascii_key, int base6
     std::string in_data = base64 ? base64_decode(ascii_key) : ascii_key;
 
     err = gpgme_data_new_from_mem (&key_buf, in_data.c_str(), in_data.length(), 1);
+    if (err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
     err = gpgme_op_import (ctx, key_buf);
+    if (err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
     result = gpgme_op_import_result (ctx);
     gpgme_data_release (key_buf);
@@ -4007,9 +4011,11 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
 
     size_t out_size = 0;
     std::string out_buf;
-    out_buf = gpgme_data_release_and_get_mem (out, &out_size);
+    char *buf;
+    buf = gpgme_data_release_and_get_mem (out, &out_size);
     /* strip the size_t data out of the output buffer */
-    out_buf = out_buf.substr(0, out_size);
+//    out_buf = out_buf.substr(0, out_size);
+    out_buf.assign(buf, out_size);
     /* set the output object to NULL since it has
         already been released */
     out = NULL;
@@ -4017,6 +4023,10 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
     gpgme_set_armor (ctx, default_armor);
 
     gpgme_release (ctx);
+
+    FILE *file = fopen("/home/dmitriy/Documents/work/tmp/webpg/key.gpg", "w");
+    fwrite(out_buf.c_str(), sizeof(char), out_size, file);
+    fclose(file);
 
     response["result"] = armor ? out_buf : base64_encode((unsigned char *)out_buf.c_str(), out_size);
 
