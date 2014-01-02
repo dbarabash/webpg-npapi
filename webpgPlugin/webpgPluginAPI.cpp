@@ -3994,7 +3994,7 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
     gpgme_ctx_t ctx = get_gpgme_ctx();
     gpgme_error_t err;
     gpgme_data_t out = NULL;
-    const char *in = keyid == "" ? keyid.c_str() : NULL;
+    const char *in = !keyid.empty() ? keyid.c_str() : NULL;
     FB::VariantMap response;
 
     int default_armor = gpgme_get_armor (ctx);
