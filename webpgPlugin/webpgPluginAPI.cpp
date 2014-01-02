@@ -3994,6 +3994,7 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
     gpgme_ctx_t ctx = get_gpgme_ctx();
     gpgme_error_t err;
     gpgme_data_t out = NULL;
+    const char *in = keyid == "" ? keyid.c_str() : NULL;
     FB::VariantMap response;
 
     int default_armor = gpgme_get_armor (ctx);
@@ -4003,7 +4004,7 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
-    err = gpgme_op_export (ctx, keyid.c_str(), 0, out, secret);
+    err = gpgme_op_export (ctx, in, 0, out, secret);
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
@@ -4014,7 +4015,6 @@ FB::variant webpgPluginAPI::gpgExportKey(const std::string& keyid, int secret, i
     char *buf;
     buf = gpgme_data_release_and_get_mem (out, &out_size);
     /* strip the size_t data out of the output buffer */
-//    out_buf = out_buf.substr(0, out_size);
     out_buf.assign(buf, out_size);
     /* set the output object to NULL since it has
         already been released */
