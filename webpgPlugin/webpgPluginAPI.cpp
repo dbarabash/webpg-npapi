@@ -16,13 +16,22 @@ Copyright 2011 Kyle L. Huff, CURETHEITCH development team
 
 #include "webpgPluginAPI.h"
 #include "keyedit.h"
-
+#include <vector>
+#include <fstream>
+#include <iostream>
+#include <regex.h>
 /*
  * Define non-member methods/inlines
  */
 
 #ifdef HAVE_W32_SYSTEM
+#include <Windows.h>
+#include <tlhelp32.h>
 #define __func__ __FUNCTION__
+#else
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 #endif
 
 using namespace boost::archive::iterators;
@@ -170,6 +179,192 @@ std::string base64_decode(std::string const& encoded_string) {
 
   return ret;
 }
+ 
+
+int GetProcessByExeName(wchar_t *ExeName) {
+ 
+/*    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+ 
+    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, NULL);
+    if( hProcessSnap == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+ 
+    if ( Process32First(hProcessSnap, &pe32) ) {
+		int i = 0;
+		do {
+			if ( strcmpi((char *)pe32.szExeFile, (char *)ExeName) == 0 ) {
+				CloseHandle(hProcessSnap);
+				return pe32.th32ProcessID;
+			}
+			i++;
+		} while ( Process32Next(hProcessSnap, &pe32) );
+    }
+ 
+    CloseHandle(hProcessSnap);
+*/
+    return 0;
+}
+
+
+FB::VariantMap webpgPluginAPI::gpgSetPassphraseCacheDuration(unsigned int duration) {
+	FB::VariantMap result;
+
+#ifdef HAVE_W32_SYSTEM
+	std::string agentConfFile = setHomeDirFromReg();
+	std::string homedir = GNUPGHOME == "" ? (std::string)getenv("HOMEPATH") + "\\AppData\\Roaming\\gnupg" : GNUPGHOME;
+	std::ifstream infile (homedir + "\\gpg-agent.conf", std::ifstream::binary);
+	std::ofstream outfile (homedir + "\\~gpg-agent.conf", std::ifstream::binary);
+#else
+	std::string homedir = GNUPGHOME == "" ? std::string(getpwuid(getuid())->pw_dir) + "/.gnupg" : GNUPGHOME;
+	std::ifstream infile ((homedir + "/gpg-agent.conf").c_str(), std::ifstream::binary);
+	std::ofstream outfile ((homedir + "/gpg-agent.conf~").c_str(), std::ifstream::binary);
+#endif
+	result["home-dir"] = homedir;
+	
+	std::string data = "";
+	if (infile.good()) {
+		infile.seekg (0,infile.end);
+		long size = infile.tellg();
+		infile.seekg (0);
+
+		char* buffer = new char[size];
+
+		infile.read (buffer,size);
+		data.assign(buffer, size);
+		delete[] buffer;
+		result["data-before-replace"] = data; 
+		infile.close();
+	}
+	if (outfile.fail()) {
+		result["error"] = "true";
+		result["error_message"] = "Error creating gpg-agent.conf~";
+		return result;
+	}
+//		std::regex reg("^\\s*default-cache-ttl\\s+\\d*\\s*$");
+		boost::regex reg("^\\s*default-cache-ttl\\s+\\d*\\s*$");
+		std::size_t pos = data.find("default-cache-ttl");
+		if (pos != std::string::npos) {
+//			data = regex_replace(data, reg, "default-cache-ttl " + std::to_string(duration) );
+			data = regex_replace(data, reg, "default-cache-ttl " + boost::to_string(duration) );
+		} else {
+//			data += "\ndefault-cache-ttl " + std::to_string(duration);
+			data += "\ndefault-cache-ttl " + boost::to_string(duration);
+		}
+		reg = "^\\s*max-cache-ttl\\s+\\d*\\s*$";
+		pos = data.find("max-cache-ttl");
+		if (pos != std::string::npos) {
+//			data = regex_replace(data, reg, "max-cache-ttl " + std::to_string(duration));
+			data = regex_replace(data, reg, "max-cache-ttl " + boost::to_string(duration));
+		} else {
+//			data += "\nmax-cache-ttl " + std::to_string(duration);
+			data += "\nmax-cache-ttl " + boost::to_string(duration);
+		}
+	result["data"] = data;
+
+	outfile.write (data.c_str(),data.length());
+
+	outfile.close();
+	
+#ifdef HAVE_W32_SYSTEM
+	if (remove((homedir + "\\gpg-agent.conf").c_str()) != 0) {
+#else
+	if (remove((homedir + "/gpg-agent.conf").c_str()) != 0) {
+#endif
+		result["error_message"] = "Error removing old gpg_agent.conf";
+	}
+#ifdef HAVE_W32_SYSTEM
+	if (rename((homedir + "\\~gpg-agent.conf").c_str(), (homedir + "\\gpg-agent.conf").c_str()) != 0) {
+#else
+	if (rename((homedir + "/gpg-agent.conf~").c_str(), (homedir + "/gpg-agent.conf").c_str()) != 0) {
+#endif
+		result["error_message"] = "Error renaming ~gpg_agent.conf to gpg_agent.conf";
+	}
+	
+	int desc = GetProcessByExeName(L"gpg-agent.exe");
+	if (desc  > 0) {
+//		result["process-id"] = std::to_string(desc);
+		result["process-id"] = boost::to_string(desc);
+#ifdef HAVE_W32_SYSTEM
+		HANDLE ps = OpenProcess(PROCESS_TERMINATE, false, desc);
+		if (ps) TerminateProcess(ps, -9);
+#else
+#endif
+	}
+	
+	return result;
+}
+
+
+#ifdef HAVE_W32_SYSTEM
+std::string webpgPluginAPI::setHomeDirFromReg() {
+	std::string ret;
+	HKEY key = NULL;
+	LONG res = 0;
+	try {
+		res = RegOpenKeyEx(HKEY_CURRENT_USER, TEXT("Software\\GNU\\GnuPG"), 0, KEY_READ, &key);
+		if (res != ERROR_SUCCESS) {
+			throw "The HKEY_CURRENT_USER\\Software\\GNU\\GnuPG key does not exist.\0";
+		}
+		
+		wchar_t value[MAX_PATH];
+		DWORD valueLength = MAX_PATH;
+		DWORD type = REG_SZ;
+		res = RegQueryValueEx(key, TEXT("HomeDir"), NULL, &type, (LPBYTE)value, &valueLength);
+		if (res == ERROR_SUCCESS) {
+			char chvalue[MAX_PATH];
+			char DefChar = ' ';
+			WideCharToMultiByte(CP_ACP,0,value,-1, chvalue,valueLength,&DefChar, NULL);
+			GNUPGHOME = std::string(chvalue);
+		} else {
+			throw "Value name \"HomeDir\" does not exist into HKEY_CURRENT_USER\\Software\\GNU\\GnuPG key.\0";
+		}
+	} catch(const char *msg) {
+		ret = msg;
+	}
+
+	if (key != NULL) {
+		res = RegCloseKey(key);
+		if (res != ERROR_SUCCESS) {
+			ret = "The HKEY_CURRENT_USER\\Software\\GNU\\GnuPG key has not closed.";
+		}
+	}
+
+	return ret;
+}
+
+std::string webpgPluginAPI::setHomeDirToReg(std::string value) {
+	std::string ret;
+	GNUPGHOME = value;
+	std::wstring wvalue = std::wstring(value.begin(), value.end());
+	
+	HKEY key = NULL;
+	LONG res = 0;
+	try {
+		res = RegOpenKeyEx(HKEY_CURRENT_USER, TEXT("Software\\GNU\\GnuPG"), 0, KEY_WRITE | KEY_READ, &key);
+		if (res != ERROR_SUCCESS) {
+			throw "The HKEY_CURRENT_USER\\Software\\GNU\\GnuPG key does not exist.\0";
+		}
+		
+		res = RegSetValueEx(key, TEXT("HomeDir"), 0, REG_SZ, (BYTE *)wvalue.c_str(), ((DWORD)wcslen(wvalue.c_str()) + 1)*sizeof(wchar_t));
+		if (res != ERROR_SUCCESS) {
+			throw "Value name \"HomeDir\" does not exist into HKEY_CURRENT_USER\\Software\\GNU\\GnuPG key.\0";
+		}
+	} catch(const char *msg) {
+		ret = msg;
+	}
+
+	if (key != NULL) {
+		res = RegCloseKey(key);
+		if (res != ERROR_SUCCESS) {
+			ret = "The HKEY_CURRENT_USER\\Software\\GNU\\GnuPG key has not closed.";
+		}
+	}
+	return ret;
+}
+#endif
+
 
 ///////////////////////////////////////////////////////////////////////////////
 /// @fn webpgPluginAPI::webpgPluginAPI(const webpgPluginPtr& plugin, const FB::BrowserHostPtr host)
@@ -257,7 +452,8 @@ webpgPluginAPI::webpgPluginAPI(const webpgPluginPtr& plugin, const FB::BrowserHo
         registerMethod("gpgShowPhoto", make_method(this, &webpgPluginAPI::gpgShowPhoto));
         registerMethod("gpgAddPhoto", make_method(this, &webpgPluginAPI::gpgAddPhoto));
         registerMethod("gpgGetPhotoInfo", make_method(this, &webpgPluginAPI::gpgGetPhotoInfo));
-
+		registerMethod("gpgSetPassphraseCacheDuration", make_method(this, &webpgPluginAPI::gpgSetPassphraseCacheDuration));
+		
         registerMethod("setTempGPGOption", make_method(this, &webpgPluginAPI::setTempGPGOption));
         registerMethod("restoreGPGConfig", make_method(this, &webpgPluginAPI::restoreGPGConfig));
         registerMethod("getTemporaryPath", make_method(this, &webpgPluginAPI::getTemporaryPath));
@@ -596,15 +792,36 @@ FB::variant webpgPluginAPI::restoreGPGConfig() {
 ///         gnupg_path. This should be called prior to initializing the
 ///         gpgme context.
 ///////////////////////////////////////////////////////////////////////////////
-FB::variant webpgPluginAPI::gpgSetHomeDir(const std::string& gnupg_path)
+FB::VariantMap webpgPluginAPI::gpgSetHomeDir(const std::string& gnupg_path)
 {
+	FB::VariantMap result_map;
+	result_map["error"] = "false";
+#ifdef HAVE_W32_SYSTEM
+    std::string err_msg = setHomeDirToReg(gnupg_path);
+	if (err_msg != "") {
+		result_map["error"] = "true";
+		result_map["error_message"] = err_msg;
+	}
+#else
     GNUPGHOME = gnupg_path;
-    return GNUPGHOME;
+#endif
+	result_map["data"] = GNUPGHOME;
+    return result_map;
 }
 
-FB::variant webpgPluginAPI::gpgGetHomeDir()
+FB::VariantMap webpgPluginAPI::gpgGetHomeDir()
 {
-    return GNUPGHOME;
+	FB::VariantMap result_map;
+	result_map["error"] = "false";
+#ifdef HAVE_W32_SYSTEM
+    std::string err_msg = setHomeDirFromReg();
+	if (err_msg != "") {
+		result_map["error"] = "true";
+		result_map["error_message"] = err_msg;
+	}
+#endif
+	result_map["data"] = GNUPGHOME;
+    return result_map;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1966,6 +2183,10 @@ FB::variant webpgPluginAPI::gpgEncryptFile(const std::string& data, const std::s
     bool unusable_key = false;
 
     gpgme_ctx_t ctx = get_gpgme_ctx();
+    /* set protocol to use in our context */
+    err = gpgme_set_protocol(ctx, GPGME_PROTOCOL_OpenPGP);
+    if(err != GPG_ERR_NO_ERROR)
+        return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
     int armor = gpgme_get_armor (ctx);
     gpgme_set_armor (ctx, 0);
     std::string in_data = base64_decode(data);

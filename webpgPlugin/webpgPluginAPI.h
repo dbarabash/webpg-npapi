@@ -127,7 +127,7 @@ public:
     ///         edit_status constant.
     ///////////////////////////////////////////////////////////////////////////////
     FB::VariantMap get_webpg_status();
-
+	
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn void webpgPluginAPI::init()
     ///
@@ -264,8 +264,15 @@ public:
     ///         gnupg_path. This should be called prior to initializing the
     ///         gpgme context.
     ///////////////////////////////////////////////////////////////////////////////
-    FB::variant gpgSetHomeDir(const std::string& gnupg_path);
-    FB::variant gpgGetHomeDir();
+#ifdef HAVE_W32_SYSTEM
+	std::string  setHomeDirFromReg();
+	std::string  setHomeDirToReg(std::string value);
+#endif
+
+    FB::VariantMap gpgSetHomeDir(const std::string& gnupg_path);
+    FB::VariantMap gpgGetHomeDir();
+
+	FB::VariantMap gpgSetPassphraseCacheDuration(unsigned int duration);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::gpgSetBinary(const std::string& gnupg_exec)
@@ -285,7 +292,7 @@ public:
     ///////////////////////////////////////////////////////////////////////////////
     FB::variant gpgSetGPGConf(const std::string& gpgconf_exec);
     FB::variant gpgGetGPGConf();
-
+	
     ///////////////////////////////////////////////////////////////////////////////
     /// @fn FB::variant webpgPluginAPI::getTemporaryPath()
     ///
