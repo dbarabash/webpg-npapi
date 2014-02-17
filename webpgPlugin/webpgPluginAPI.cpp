@@ -183,7 +183,8 @@ std::string base64_decode(std::string const& encoded_string) {
 
 int GetProcessByExeName(wchar_t *ExeName) {
  
-/*    PROCESSENTRY32 pe32;
+#ifdef HAVE_W32_SYSTEM
+    PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
  
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, NULL);
@@ -203,7 +204,7 @@ int GetProcessByExeName(wchar_t *ExeName) {
     }
  
     CloseHandle(hProcessSnap);
-*/
+#endif
     return 0;
 }
 
