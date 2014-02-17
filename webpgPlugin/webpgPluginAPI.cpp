@@ -19,7 +19,6 @@ Copyright 2011 Kyle L. Huff, CURETHEITCH development team
 #include <vector>
 #include <fstream>
 #include <iostream>
-#include <regex.h>
 /*
  * Define non-member methods/inlines
  */
@@ -27,11 +26,13 @@ Copyright 2011 Kyle L. Huff, CURETHEITCH development team
 #ifdef HAVE_W32_SYSTEM
 #include <Windows.h>
 #include <tlhelp32.h>
+#include <regex>
 #define __func__ __FUNCTION__
 #else
 #include <unistd.h>
 #include <sys/types.h>
 #include <pwd.h>
+#include <regex.h>
 #endif
 
 using namespace boost::archive::iterators;
@@ -181,6 +182,9 @@ std::string base64_decode(std::string const& encoded_string) {
 }
  
 
+//DWORD GetProcessByExeName(wchar_t *ExeName) {
+//    DWORD Pid;
+ 
 int GetProcessByExeName(wchar_t *ExeName) {
  
 #ifdef HAVE_W32_SYSTEM
@@ -243,23 +247,18 @@ FB::VariantMap webpgPluginAPI::gpgSetPassphraseCacheDuration(unsigned int durati
 		result["error_message"] = "Error creating gpg-agent.conf~";
 		return result;
 	}
-//		std::regex reg("^\\s*default-cache-ttl\\s+\\d*\\s*$");
 		boost::regex reg("^\\s*default-cache-ttl\\s+\\d*\\s*$");
 		std::size_t pos = data.find("default-cache-ttl");
 		if (pos != std::string::npos) {
-//			data = regex_replace(data, reg, "default-cache-ttl " + std::to_string(duration) );
 			data = regex_replace(data, reg, "default-cache-ttl " + boost::to_string(duration) );
 		} else {
-//			data += "\ndefault-cache-ttl " + std::to_string(duration);
 			data += "\ndefault-cache-ttl " + boost::to_string(duration);
 		}
 		reg = "^\\s*max-cache-ttl\\s+\\d*\\s*$";
 		pos = data.find("max-cache-ttl");
 		if (pos != std::string::npos) {
-//			data = regex_replace(data, reg, "max-cache-ttl " + std::to_string(duration));
 			data = regex_replace(data, reg, "max-cache-ttl " + boost::to_string(duration));
 		} else {
-//			data += "\nmax-cache-ttl " + std::to_string(duration);
 			data += "\nmax-cache-ttl " + boost::to_string(duration);
 		}
 	result["data"] = data;
@@ -285,7 +284,6 @@ FB::VariantMap webpgPluginAPI::gpgSetPassphraseCacheDuration(unsigned int durati
 	
 	int desc = GetProcessByExeName(L"gpg-agent.exe");
 	if (desc  > 0) {
-//		result["process-id"] = std::to_string(desc);
 		result["process-id"] = boost::to_string(desc);
 #ifdef HAVE_W32_SYSTEM
 		HANDLE ps = OpenProcess(PROCESS_TERMINATE, false, desc);
