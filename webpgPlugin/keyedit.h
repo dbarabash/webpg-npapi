@@ -91,6 +91,164 @@ static int step = 0;
 
 static int flag_step = 0;
 
+typedef enum {
+  WEBPG_EDIT_NONE,
+  WEBPG_EDIT_SIGN,
+  WEBPG_EDIT_DELSIGN,
+  WEBPG_EDIT_ENABLE,
+  WEBPG_EDIT_DISABLE,
+  WEBPG_EDIT_ADDSUBKEY,
+  WEBPG_EDIT_DELSUBKEY,
+  WEBPG_EDIT_ADD_UID,
+  WEBPG_EDIT_DEL_UID,
+  WEBPG_EDIT_SET_PRIMARY_UID,
+  WEBPG_EDIT_SET_KEY_EXPIRE,
+  WEBPG_EDIT_REVOKE_ITEM,
+  WEBPG_EDIT_PASSPHRASE,
+  WEBPG_EDIT_ASSIGN_TRUST,
+  WEBPG_EDIT_SHOW_PHOTO,
+  WEBPG_EDIT_CHECK_PHOTO,
+  WEBPG_EDIT_ADD_PHOTO
+} WEBPG_EDIT_TYPES;
+
+// Used to store the index for the key/subkey
+//  0: Public Key
+//  1 &>: Subkeys
+std::string akey_index;
+
+static int jstep = 0;
+
+// Used to indicate the current edit action before calling edit_fnc
+static int current_edit = WEBPG_EDIT_NONE;
+
+const char* WEBPG_EDIT_TYPE_STRINGS[] = {
+  "WEBPG_EDIT_NONE",
+  "WEBPG_EDIT_SIGN",
+  "WEBPG_EDIT_DELSIGN",
+  "WEBPG_EDIT_ENABLE",
+  "WEBPG_EDIT_DISABLE",
+  "WEBPG_EDIT_ADDSUBKEY",
+  "WEBPG_EDIT_DELSUBKEY",
+  "WEBPG_EDIT_ADD_UID",
+  "WEBPG_EDIT_DEL_UID",
+  "WEBPG_EDIT_SET_PRIMARY_UID",
+  "WEBPG_EDIT_SET_KEY_EXPIRE",
+  "WEBPG_EDIT_REVOKE_ITEM",
+  "WEBPG_EDIT_PASSPHRASE",
+  "WEBPG_EDIT_ASSIGN_TRUST",
+  "WEBPG_EDIT_SHOW_PHOTO",
+  "WEBPG_EDIT_CHECK_PHOTO",
+  "WEBPG_EDIT_ADD_PHOTO"
+};
+
+const std::string EDIT_VALUES = "{\
+  \"WEBPG_EDIT_SIGN\": {\
+    \"keyedit.prompt\": [\
+      \"fpr\",\
+      \"_current_uid\",\
+      \"tlsign\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_DELSIGN\": {\
+    \"keyedit.prompt\": [\
+      \"fpr\",\
+      \"_current_uid\",\
+      \"delsig\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_DISABLE\": {\
+    \"keyedit.prompt\": [\
+      \"disable\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_ENABLE\": {\
+    \"keyedit.prompt\": [\
+      \"enable\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_ASSIGN_TRUST\": {\
+    \"keyedit.prompt\": [\
+      \"trust\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_ADD_UID\": {\
+    \"keyedit.prompt\": [\
+      \"adduid\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_DEL_UID\": {\
+    \"keyedit.prompt\": [\
+      \"_current_uid\",\
+      \"deluid\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_SET_PRIMARY_UID\": {\
+    \"keyedit.prompt\": [\
+      \"_current_uid\",\
+      \"primary\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_SET_KEY_EXPIRE\": {\
+    \"keyedit.prompt\": [\
+      \"_key\",\
+      \"expire\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_REVOKE_ITEM\": {\
+    \"keyedit.prompt\": [\
+      \"_item\",\
+      \"_revitem\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_ADDSUBKEY\": {\
+    \"keyedit.prompt\": [\
+      \"addkey\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_DELSUBKEY\": {\
+    \"keyedit.prompt\": [\
+      \"_key\",\
+      \"delkey\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_PASSPHRASE\": {\
+    \"keyedit.prompt\": [\
+      \"passwd\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_SHOW_PHOTO\": {\
+    \"keyedit.prompt\": [\
+      \"showphoto\",\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_CHECK_PHOTO\": {\
+    \"keyedit.prompt\": [\
+      \"quit\"\
+    ]\
+  },\
+  \"WEBPG_EDIT_ADD_PHOTO\": {\
+    \"keyedit.prompt\": [\
+      \"addphoto\",\
+      \"quit\"\
+    ]\
+  }\
+}";
+
+
 /* An inline method to convert an integer to a string */
 inline
 std::string i_to_str(const int &number)

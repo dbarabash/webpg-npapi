@@ -37,6 +37,35 @@ Copyright 2011 Kyle L. Huff, CURETHEITCH development team
 
 using namespace boost::archive::iterators;
 
+// Converts a "_param" to an actual value
+std::string get_value_for(const char* var)
+{
+  std::string cmd;
+  if (!strcmp(var, "_current_uid"))
+    return current_uid.c_str();
+  else if (!strcmp(var, "_key")) {
+    cmd = "key ";
+    cmd += akey_index;
+    return cmd.c_str();
+  } else if (!strcmp(var, "_item")) {
+    if (!strcmp (revitem.c_str(), "revkey")) {
+      cmd = "key ";
+      cmd += akey_index;
+    } else if (!strcmp (revitem.c_str(), "revuid")) {
+      cmd = "uid ";
+      cmd += current_uid;
+    } else if (!strcmp (revitem.c_str(), "revsig")) {
+      cmd = "uid ";
+      cmd += current_uid;
+    }
+    return cmd.c_str();
+  } else if (!strcmp(var, "_revitem"))
+    return revitem.c_str();
+  else
+    return "ERROR";
+}
+
+
 FB::VariantMap get_error_map(const std::string& method,
                         gpgme_error_t gpg_error_code,
                         const std::string& error_string,
@@ -71,6 +100,245 @@ static const char *
     {
       return s? s :"[none]";
     }
+
+gpgme_error_t edit_fnc(
+  void *opaque,
+    gpgme_status_code_t status,
+    const char *args,
+    int fd
+) {
+  /* this stores the response to a questions that arise during
+     the edit loop - it is what the user would normally type while
+     using `gpg --edit-key`. To test the prompts and their output,
+     you can execute GnuPG this way:
+         gpg --command-fd 0 --status-fd 2 --edit-key <KEY ID>
+  */
+  Json::Value EDIT_ACTIONS_MAP;
+  Json::Reader _action_reader;
+  if (false == (_action_reader.parse (EDIT_VALUES, EDIT_ACTIONS_MAP))) {
+    std::cerr << "\nFailed to parse configuration:" <<
+      _action_reader.getFormatedErrorMessages() << std::endl;
+  }
+
+  std::string response;
+  int error = GPG_ERR_NO_ERROR;
+  static std::string prior_response = "";
+  static gpgme_status_code_t status_result;
+
+  if (current_edit == WEBPG_EDIT_SIGN && status != 49 && status != 51)
+    status_result = status;
+
+  const char* edit_type = WEBPG_EDIT_TYPE_STRINGS[current_edit];
+  
+  // FIXME: Make this something useful
+  if (!EDIT_ACTIONS_MAP.isMember(edit_type)) {
+    std::cerr << "\nError: " << edit_type << " is not in EDIT_ACTIONS_MAP"
+      << std::endl;
+    return 1;
+  }
+
+  Json::Value default_value = "quit";
+  Json::Value::ArrayIndex v_iter;
+
+  if (fd >= 0) {
+    if (!strcmp (args, "keyedit.prompt")) {
+      switch (step) {
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+          if (EDIT_ACTIONS_MAP[edit_type]["keyedit.prompt"]
+           .isValidIndex(step)) {
+            v_iter = step;
+            if (EDIT_ACTIONS_MAP[edit_type]["keyedit.prompt"]
+             .get(v_iter, default_value).asString().substr(0, 1) == "_") {
+              response = get_value_for(
+                EDIT_ACTIONS_MAP[edit_type]["keyedit.prompt"]
+                  .get(v_iter, default_value).asString().c_str()
+              );
+            } else {
+              response = EDIT_ACTIONS_MAP[edit_type]["keyedit.prompt"]
+               .get(v_iter, default_value).asString();
+            }
+            if (step == 1) {
+              if (current_edit == WEBPG_EDIT_DELSIGN)
+                signature_iter = 1;
+              if (current_edit == WEBPG_EDIT_REVOKE_ITEM) {
+                signature_iter = 0;
+                text_line = 1;
+              }
+            }
+            break;
+          } else {
+            step = -1;
+            response = "quit";
+            break;
+          }
+
+        default:
+          if (status_result && prior_response == "tlsign")
+            error = status_result; // there is a problem...
+          prior_response = "";
+          step = -1;
+          response = "quit";
+          break;
+      }
+      step++;
+    }
+    else if (!strcmp (args, "keyedit.save.okay"))
+      response = "Y";
+    else if (!strcmp (args, "trustsig_prompt.trust_value"))
+      response = "1";
+    else if (!strcmp (args, "trustsig_prompt.trust_depth"))
+      response = "1";
+    else if (!strcmp (args, "trustsig_prompt.trust_regexp"))
+      response = "";
+    else if (!strcmp (args, "sign_uid.okay"))
+      response = "y";
+    else if (!strcmp (args, "keyedit.delsig.valid") || 
+             !strcmp (args, "keyedit.delsig.invalid") ||
+             !strcmp (args, "keyedit.delsig.unknown") ||
+             !strcmp (args, "ask_revoke_sig.one")) {
+      if (signature_iter == atoi(current_sig.c_str())) {
+        response = "y";
+        current_sig = "0";
+        current_uid = "0";
+        signature_iter = 0;
+      } else {
+        response = "N";
+      }
+      signature_iter++;
+    } else if (!strcmp (args, "edit_ownertrust.value")) {
+      if (step < 15) {
+        response = trust_assignment;
+        step++;
+      } else {
+        response = "m";
+      }
+    } else if (!strcmp (args, "edit_ownertrust.set_ultimate.okay"))
+      response = "Y";
+    else if (!strcmp (args, "keyedit.delsig.selfsig"))
+      response = "y";
+    else if (!strcmp (args, "keygen.name"))
+      response = genuid_name.c_str();
+    else if (!strcmp (args, "keygen.email")) {
+      if (strlen (genuid_email.c_str()) > 1)
+        response = genuid_email.c_str();
+      else
+        response = "";
+    } else if (!strcmp (args, "keygen.comment")) {
+      if (strlen (genuid_comment.c_str()) > 1)
+        response = genuid_comment.c_str();
+      else
+        response = "";
+    } else if (!strcmp (args, "keygen.algo"))
+      response = gen_subkey_type.c_str();
+    else if (!strcmp (args, "keygen.flags")) {
+      switch (flag_step) {
+        case 0:
+          // If the gen_sign_flag is set, we don't need to change
+          //  anything, as the sign_flag is set by default
+          if (gen_sign_flag) {
+            response = "nochange";
+          } else {
+            response = "S";
+          }
+          break;
+
+        case 1:
+          // If the gen_enc_flag is set, we don't need to change
+          //  anything, as the enc_flag is set by default on keys
+          //  that support the enc flag (RSA)
+          if (gen_enc_flag) {
+            response = "nochange";
+          } else {
+            response = "E";
+          }
+          break;
+
+        case 2:
+          if (gen_auth_flag) {
+            response = (char *) "A";
+          } else {
+            response = "nochange";
+          }
+          break;
+
+        default:
+          response = "Q";
+          flag_step = -1;
+          break;
+      }
+      flag_step++;
+    } else if (!strcmp (args, "keygen.size"))
+      response = gen_subkey_length.c_str();
+    else if (!strcmp (args, "keygen.valid"))
+      response = expiration.c_str();
+    else if (!strcmp (args, "keyedit.remove.uid.okay"))
+      response = "Y";
+    else if (!strcmp (args, "keyedit.revoke.subkey.okay"))
+      response = "Y";
+    else if (!strcmp (args, "keyedit.revoke.uid.okay"))
+      response = "Y";
+    else if (!strcmp (args, "ask_revoke_sig.okay"))
+      response = "Y";
+    else if (!strcmp (args, "ask_revocation_reason.code"))
+      response = reason_index.c_str();
+    else if (!strcmp (args, "ask_revocation_reason.text")) {
+      if (text_line > 1) {
+        text_line = 1;
+        response = "";
+      } else {
+        text_line++;
+        response = description.c_str();
+      }
+    } else if (!strcmp (args, "ask_revocation_reason.okay"))
+        response = "Y";
+    else if (!strcmp (args, "keyedit.remove.subkey.okay"))
+      response = "Y";
+    else if (!strcmp (args, "photoid.jpeg.add")) {
+      switch (jstep) {
+        case 0:
+          response = photo_path;
+          break;
+
+        default:
+          jstep = -1;
+          break;
+      }
+      jstep++;
+    } else if (!strcmp (args, "photoid.jpeg.size"))
+      response = "Y";
+    else if (!strcmp (args, "keyedit.save.okay")) {
+      response = "Y";
+      step = 0;
+    } else if (!strcmp (args, "passphrase.enter")) {
+      response = "";
+    } else {
+      fprintf(stdout, "We should never reach this line; Line: %i\n", __LINE__);
+      std::cout << "Line: " << __LINE__ << "; " << edit_status << std::endl;
+      response = "quit";
+    }
+  } else {
+    return 0;
+  }
+
+  prior_response = response;
+  if (!strcmp(response.c_str(), "quit")) {
+    step = 0;
+    jstep = 0;
+    flag_step = 0;
+  }
+
+  gpgme_io_write (fd, response.c_str(), response.length());
+  gpgme_io_write (fd, "\n", 1);
+
+  if (error != GPG_ERR_NO_ERROR)
+    std::cout << error << std::endl;
+
+  return error;
+}
 
 std::string LoadFileAsString(const std::string& filename)
 {
@@ -3076,7 +3344,9 @@ FB::variant webpgPluginAPI::gpgSignUID(const std::string& keyid, long sign_uid,
     edit_status = "gpgSignUID(keyid='" + keyid + "', sign_uid='" + i_to_str(sign_uid) + 
         "', with_keyid='" + with_keyid + "', local_only='" + i_to_str(local_only) + "', trust_sign='" + 
         i_to_str(trust_sign) + "', trust_level='" + i_to_str(trust_level) + "');\n";
-    err = gpgme_op_edit (ctx, key, edit_fnc_sign, out, out);
+
+    current_edit = WEBPG_EDIT_SIGN;
+    err = gpgme_op_edit (ctx, key, edit_fnc, out, out);
     if (err != GPG_ERR_NO_ERROR) {
         if (err == GPGME_STATUS_ALREADY_SIGNED) {
             result = get_error_map(__func__, err, "The selected UID has already been signed with this key.", __LINE__, __FILE__);
@@ -3892,7 +4162,8 @@ FB::variant webpgPluginAPI::gpgSetKeyTrust(const std::string& keyid, long trust_
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
     edit_status = "gpgSetKeyTrust(keyid='" + keyid + "', trust_level='" + i_to_str(trust_level) + "');\n";
-    err = gpgme_op_edit (ctx, key, edit_fnc_assign_trust, out, out);
+    current_edit = WEBPG_EDIT_ASSIGN_TRUST;
+    err = gpgme_op_edit (ctx, key, edit_fnc, out, out);
     if (err != GPG_ERR_NO_ERROR)
         return get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
@@ -4441,50 +4712,54 @@ FB::variant webpgPluginAPI::gpgRevokeSignature(const std::string& keyid, int uid
 ///////////////////////////////////////////////////////////////////////////////
 FB::variant webpgPluginAPI::gpgChangePassphrase(const std::string& keyid)
 {
-    gpgme_ctx_t ctx = get_gpgme_ctx();
-    gpgme_error_t err;
-    gpgme_data_t out = NULL;
-    gpgme_key_t key = NULL;
-    FB::VariantMap result;
 
-    err = gpgme_op_keylist_start (ctx, keyid.c_str(), 0);
-    if (err != GPG_ERR_NO_ERROR)
-        result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+  gpgme_ctx_t ctx = get_gpgme_ctx();
+  gpgme_error_t err;
+  gpgme_data_t out = NULL;
+  gpgme_key_t key = NULL;
+  FB::VariantMap result;
 
-    err = gpgme_op_keylist_next (ctx, &key);
-    if (err != GPG_ERR_NO_ERROR)
-        result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+  err = gpgme_get_key(ctx, keyid.c_str(), &key, 1);
 
-    err = gpgme_op_keylist_end (ctx);
-    if (err != GPG_ERR_NO_ERROR)
-        result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+  if (err != GPG_ERR_NO_ERROR)
+    result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
-    err = gpgme_data_new (&out);
-    if (err != GPG_ERR_NO_ERROR)
-        result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+  if (!key)
+    result = get_error_map(__func__, GPG_ERR_NOT_FOUND, "Key did not found.",  __LINE__, __FILE__);
 
+  err = gpgme_data_new (&out);
+  if (err != GPG_ERR_NO_ERROR)
+    result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+
+  if (key) {
     edit_status = "gpgChangePassphrase(keyid='" + keyid + "');\n";
-    err = gpgme_op_edit (ctx, key, edit_fnc_change_passphrase, out, out);
-    if (err != GPG_ERR_NO_ERROR)
-        result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
+    current_edit = WEBPG_EDIT_PASSPHRASE;
+    err = gpgme_op_edit (ctx, key, edit_fnc, out, out);
+  }
 
-    FB::VariantMap response;
-    if (!key->secret) {
-        response["error"] = true;
-        response["result"] = "no secret";
-    } else {
-        response["error"] = false;
-        response["result"] = "success";
-    }
+  if (err != GPG_ERR_NO_ERROR)
+    result = get_error_map(__func__, gpgme_err_code (err), gpgme_strerror (err), __LINE__, __FILE__);
 
+  FB::VariantMap response;
+  if (!key || !key->secret) {
+    response["error"] = true;
+    response["result"] = "no secret";
+  } else {
+    response["error"] = false;
+    response["result"] = "success";
+  }
+
+  if (out)
     gpgme_data_release (out);
+  if (key)
     gpgme_key_unref (key);
-    gpgme_release (ctx);
+  gpgme_release (ctx);
 
-    if (result.size())
-        return result;
+  if (result.size())
+    return result;
 
-    return response;
+  return response;
+
 }
 
 /*
